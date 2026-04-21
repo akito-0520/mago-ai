@@ -17,3 +17,8 @@ CLAUDE_MODEL      = "claude-sonnet-4-6"
 # --- LINE Messaging API（dev チャネル） ---
 LINE_CHANNEL_SECRET        = ""
 LINE_CHANNEL_ACCESS_TOKEN  = ""
+
+# --- Google OAuth（ローカル Supabase 用） ---
+# Google Cloud Console → Credentials → OAuth 2.0 Client IDs で作成した値
+SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID  = ""
+SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET     = ""
