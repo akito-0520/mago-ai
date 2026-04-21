@@ -1,0 +1,19 @@
+# backend/.mise.local.toml.example
+# このファイルを .mise.local.toml にコピーして値を埋める（.mise.local.toml は gitignore）
+
+[env]
+# --- Server ---
+PORT = "8080"
+
+# --- Supabase（ローカル CLI の起動時に出力される値を貼る） ---
+DATABASE_URL               = "postgres://postgres:postgres@127.0.0.1:54322/postgres"
+SUPABASE_URL               = "http://127.0.0.1:54321"
+SUPABASE_SERVICE_ROLE_KEY  = ""
+
+# --- Anthropic Claude ---
+ANTHROPIC_API_KEY = ""
+CLAUDE_MODEL      = "claude-sonnet-4-6"
+
+# --- LINE Messaging API（dev チャネル） ---
+LINE_CHANNEL_SECRET        = ""
+LINE_CHANNEL_ACCESS_TOKEN  = ""

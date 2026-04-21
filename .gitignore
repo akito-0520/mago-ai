@@ -1,0 +1,34 @@
+# OS
+.DS_Store
+
+# mise ローカル env（機密）
+.mise.local.toml
+
+# Env 系
+.env
+.env.*
+!.env.example
+
+# Go
+/backend/bin/
+/backend/*.test
+/backend/*.out
+/backend/vendor/
+/backend/tmp/
+
+# Node / Next.js
+/frontend/node_modules/
+/frontend/.next/
+/frontend/out/
+/frontend/build/
+/frontend/.vercel/
+/frontend/next-env.d.ts
+
+# Supabase
+/supabase/.branches/
+/supabase/.temp/
+
+# IDE
+.vscode/
+.idea/
+*.swp

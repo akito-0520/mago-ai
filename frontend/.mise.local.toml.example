@@ -1,0 +1,8 @@
+# frontend/.mise.local.toml.example
+# このファイルを .mise.local.toml にコピーして値を埋める（.mise.local.toml は gitignore）
+
+[env]
+# Next.js から Supabase にアクセスするための公開キー
+# supabase start 実行時のターミナル出力に表示される値を貼る
+NEXT_PUBLIC_SUPABASE_URL       = "http://127.0.0.1:54321"
+NEXT_PUBLIC_SUPABASE_ANON_KEY  = ""
