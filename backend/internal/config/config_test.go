@@ -3,6 +3,7 @@ package config_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -29,8 +30,9 @@ func TestLoad(t *testing.T) {
 		{
 			name: "全ての必須 env + 任意 env が揃えばその値が入る",
 			envs: merge(requiredEnvs, map[string]string{
-				"PORT":         "9090",
-				"CLAUDE_MODEL": "claude-opus-4-7",
+				"PORT":                      "9090",
+				"CLAUDE_MODEL":              "claude-opus-4-7",
+				"CONVERSATION_WINDOW_HOURS": "12",
 			}),
 			assert: func(t *testing.T, c *config.Config) {
 				require.Equal(t, "9090", c.Port)
@@ -41,6 +43,7 @@ func TestLoad(t *testing.T) {
 				require.Equal(t, "claude-opus-4-7", c.ClaudeModel)
 				require.Equal(t, "line-secret", c.LineChannelSecret)
 				require.Equal(t, "line-token", c.LineChannelAccessToken)
+				require.Equal(t, 12*time.Hour, c.ConversationWindow)
 			},
 		},
 		{
@@ -56,6 +59,31 @@ func TestLoad(t *testing.T) {
 			assert: func(t *testing.T, c *config.Config) {
 				require.Equal(t, "claude-sonnet-4-6", c.ClaudeModel)
 			},
+		},
+		{
+			name: "CONVERSATION_WINDOW_HOURS 未設定なら 24 時間がデフォルト",
+			envs: requiredEnvs,
+			assert: func(t *testing.T, c *config.Config) {
+				require.Equal(t, 24*time.Hour, c.ConversationWindow)
+			},
+		},
+		{
+			name:     "CONVERSATION_WINDOW_HOURS が非数値ならエラー",
+			envs:     merge(requiredEnvs, map[string]string{"CONVERSATION_WINDOW_HOURS": "abc"}),
+			wantErr:  true,
+			errMatch: []string{"CONVERSATION_WINDOW_HOURS"},
+		},
+		{
+			name:     "CONVERSATION_WINDOW_HOURS が 0 ならエラー",
+			envs:     merge(requiredEnvs, map[string]string{"CONVERSATION_WINDOW_HOURS": "0"}),
+			wantErr:  true,
+			errMatch: []string{"CONVERSATION_WINDOW_HOURS"},
+		},
+		{
+			name:     "CONVERSATION_WINDOW_HOURS が負数ならエラー",
+			envs:     merge(requiredEnvs, map[string]string{"CONVERSATION_WINDOW_HOURS": "-1"}),
+			wantErr:  true,
+			errMatch: []string{"CONVERSATION_WINDOW_HOURS"},
 		},
 		{
 			name:     "必須 env が 1 つ欠けるとエラー（DATABASE_URL）",
@@ -122,6 +150,7 @@ func clearEnvs(t *testing.T) {
 		"CLAUDE_MODEL",
 		"LINE_CHANNEL_SECRET",
 		"LINE_CHANNEL_ACCESS_TOKEN",
+		"CONVERSATION_WINDOW_HOURS",
 	}
 	for _, k := range keys {
 		t.Setenv(k, "")
