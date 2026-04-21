@@ -1,0 +1,7 @@
+.next
+out
+build
+node_modules
+next-env.d.ts
+lib/database.types.ts
+package-lock.json
