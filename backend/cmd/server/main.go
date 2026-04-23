@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,31 +15,50 @@ import (
 
 	"github.com/akito-0520/mago-ai/backend/internal/config"
 	"github.com/akito-0520/mago-ai/backend/internal/interface/http/handler"
-	appmw "github.com/akito-0520/mago-ai/backend/internal/interface/http/middleware"
 )
 
 func main() {
+	// slog の設定
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
 	// 環境変数の読み込み
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("config load faild", "err", err)
+		os.Exit(1)
 	}
 
 	// Echoインスタンスの作成
 	e := echo.New()
 
 	// middleware の登録
-	e.Use(middleware.RequestLogger()) // リクエストをログで出力
-	e.Use(middleware.Recover())       // panicが起きた時に500エラーに変換
-	e.Use(appmw.Timing())             // リクエストの処理時間をログで出力
+	// リクエストをログで出力
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogStatus:  true,
+		LogURI:     true,
+		LogMethod:  true,
+		LogLatency: true,
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			slog.Info("request",
+				"method", v.Method,
+				"uri", v.URI,
+				"status", v.Status,
+				"latency_ms", v.Latency.Milliseconds(),
+			)
+			return nil
+		},
+	}))
+	e.Use(middleware.Recover()) // panicが起きた時に500エラーに変換
 
 	// ルートの登録
 	e.GET("/healthz", handler.Health)
+	e.POST("/webhook", handler.Webhook(cfg.LineChannelSecret))
 
 	// サーバー起動
 	go func() {
 		if err := e.Start(":" + cfg.Port); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
+			slog.Error("sever start failed", "err", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -50,10 +69,10 @@ func main() {
 
 	// contextを作成してGraceful Shutdown を行う
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	log.Print("start shutdown")
+	slog.Info("shutdown started")
 	defer cancel()
 
 	if err := e.Shutdown(ctx); err != nil {
-		log.Println("shutdown error: ", err)
+		slog.Error("shutdown failed", "err", err)
 	}
 }

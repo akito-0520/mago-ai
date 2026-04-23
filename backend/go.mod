@@ -4,6 +4,7 @@ go 1.26.2
 
 require (
 	github.com/labstack/echo/v4 v4.15.1
+	github.com/line/line-bot-sdk-go/v8 v8.20.0
 	github.com/stretchr/testify v1.11.1
 )
 
