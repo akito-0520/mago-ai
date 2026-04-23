@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/akito-0520/mago-ai/backend/internal/config"
 	"github.com/akito-0520/mago-ai/backend/internal/interface/http/handler"
+	appmw "github.com/akito-0520/mago-ai/backend/internal/interface/http/middleware"
 )
 
 func main() {
@@ -25,6 +27,11 @@ func main() {
 
 	// Echoインスタンスの作成
 	e := echo.New()
+
+	// middleware の登録
+	e.Use(middleware.RequestLogger()) // リクエストをログで出力
+	e.Use(middleware.Recover())       // panicが起きた時に500エラーに変換
+	e.Use(appmw.Timing())             // リクエストの処理時間をログで出力
 
 	// ルートの登録
 	e.GET("/healthz", handler.Health)
