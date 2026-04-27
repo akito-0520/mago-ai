@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/akito-0520/mago-ai/backend/internal/config"
+	"github.com/akito-0520/mago-ai/backend/internal/infrastructure/linebot"
 	"github.com/akito-0520/mago-ai/backend/internal/interface/http/handler"
 )
 
@@ -24,7 +25,7 @@ func main() {
 	// 環境変数の読み込み
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("config load faild", "err", err)
+		slog.Error("config load failed", "err", err)
 		os.Exit(1)
 	}
 
@@ -50,14 +51,24 @@ func main() {
 	}))
 	e.Use(middleware.Recover()) // panicが起きた時に500エラーに変換
 
+	// lineClient の生成
+	lineClient, err := linebot.New(cfg.LineChannelAccessToken)
+	if err != nil {
+		slog.Error("linebot setup failed", "err", err)
+		os.Exit(1)
+	}
+
+	// webhook ハンドラーのセットアップ
+	webhookHandler := handler.Webhook(lineClient, cfg.LineChannelSecret)
+
 	// ルートの登録
 	e.GET("/healthz", handler.Health)
-	e.POST("/webhook", handler.Webhook(cfg.LineChannelSecret))
+	e.POST("/webhook", webhookHandler)
 
 	// サーバー起動
 	go func() {
 		if err := e.Start(":" + cfg.Port); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("sever start failed", "err", err)
+			slog.Error("server start failed", "err", err)
 			os.Exit(1)
 		}
 	}()
