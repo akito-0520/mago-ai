@@ -1,0 +1,23 @@
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/cd.yml"
+
+jobs:
+  backend-cd: # ジョブ名
+    runs-on: ubuntu-latest # 実行環境
+
+    steps: # ステップの定義
+      - name: checkout repository
+        uses: actions/checkout@v6
+
+      - name: setup superfly # flyのセットアップ
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: deployment # 本番環境にデプロイ
+        run: flyctl deploy --remote-only
+        working-directory: ./backend
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
