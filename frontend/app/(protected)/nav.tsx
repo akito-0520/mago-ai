@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, Users, Ticket } from "lucide-react";
@@ -24,12 +25,17 @@ export function HeaderNav({ email }: { email: string | null | undefined }) {
   };
 
   return (
-    <header className="sticky top-0 z-30 border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+    <header className="sticky top-0 z-30 border-b bg-white/80 backdrop-blur supports-backdrop-filter:bg-white/60">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6">
         <Link href="/line-users" className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-lg bg-emerald-500 text-white shadow-sm">
-            <span className="text-base font-bold">孫</span>
-          </span>
+          <Image
+            src="/app_icon.png"
+            alt="mago.ai"
+            width={32}
+            height={32}
+            priority
+            className="size-8 rounded-lg shadow-sm"
+          />
           <span className="text-lg font-bold tracking-tight">mago.ai</span>
           <span className="hidden text-xs text-muted-foreground sm:inline">管理画面</span>
         </Link>

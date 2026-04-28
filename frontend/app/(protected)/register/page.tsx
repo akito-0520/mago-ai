@@ -86,7 +86,7 @@ export default function RegisterPage() {
 
         {token && (
           <CardContent>
-            <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5 text-center sm:p-6">
+            <div className="rounded-xl border border-emerald-200 bg-linear-to-br from-emerald-50 to-white p-5 text-center sm:p-6">
               <p className="text-xs font-medium tracking-wider text-emerald-700 uppercase">
                 発行されたコード
               </p>

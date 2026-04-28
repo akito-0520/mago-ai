@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -22,12 +23,17 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-sky-50 px-6">
+    <main className="flex min-h-screen items-center justify-center bg-linear-to-br from-emerald-50 via-white to-sky-50 px-6">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 grid size-14 place-items-center rounded-2xl bg-emerald-500 text-white shadow-lg shadow-emerald-500/25">
-            <span className="text-2xl font-bold">孫</span>
-          </div>
+          <Image
+            src="/app_icon.png"
+            alt="mago.ai"
+            width={80}
+            height={80}
+            priority
+            className="mx-auto mb-4 size-20 rounded-2xl shadow-lg shadow-emerald-500/15"
+          />
           <h1 className="text-2xl font-bold tracking-tight">mago.ai</h1>
           <p className="mt-1 text-sm text-muted-foreground">おばあちゃん見守り Bot の管理画面</p>
         </div>

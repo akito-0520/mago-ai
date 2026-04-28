@@ -1,6 +1,7 @@
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowRight, Heart, MessageCircle, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, MessageCircle, ShieldCheck, Sparkles } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 
@@ -15,12 +16,17 @@ export default async function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-emerald-50/60 via-white to-sky-50/60">
+    <div className="min-h-screen bg-linear-to-b from-emerald-50/60 via-white to-sky-50/60">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 sm:py-5">
         <Link href="/" className="flex items-center gap-2">
-          <span className="grid size-9 place-items-center rounded-xl bg-emerald-500 text-white shadow-sm">
-            <span className="text-base font-bold">孫</span>
-          </span>
+          <Image
+            src="/app_icon.png"
+            alt="mago.ai"
+            width={36}
+            height={36}
+            priority
+            className="size-9 rounded-xl shadow-sm"
+          />
           <span className="text-lg font-bold tracking-tight">mago.ai</span>
         </Link>
         <Link href="/login">
@@ -63,12 +69,16 @@ export default async function Home() {
           </div>
 
           <div className="relative order-first md:order-last">
-            <div className="absolute -inset-6 rounded-[2.5rem] bg-gradient-to-br from-emerald-200/40 via-sky-200/40 to-transparent blur-2xl" />
+            <div className="absolute -inset-6 rounded-[2.5rem] bg-linear-to-br from-emerald-200/40 via-sky-200/40 to-transparent blur-2xl" />
             <div className="relative mx-auto w-full max-w-xs rounded-[2rem] border bg-white p-4 shadow-xl sm:max-w-sm sm:p-5">
               <div className="flex items-center gap-2 border-b pb-3">
-                <span className="grid size-8 place-items-center rounded-full bg-emerald-100 text-emerald-700">
-                  <Heart className="size-4" />
-                </span>
+                <Image
+                  src="/app_icon.png"
+                  alt="mago.ai Bot"
+                  width={32}
+                  height={32}
+                  className="size-8 rounded-full"
+                />
                 <span className="text-sm font-semibold">mago.ai Bot</span>
               </div>
               <div className="mt-4 space-y-3">
@@ -119,7 +129,7 @@ export default async function Home() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 sm:pb-24">
-        <div className="overflow-hidden rounded-2xl border bg-gradient-to-br from-emerald-500 to-emerald-600 px-6 py-8 text-white shadow-lg shadow-emerald-500/20 sm:px-12 sm:py-14">
+        <div className="overflow-hidden rounded-2xl border bg-linear-to-br from-emerald-500 to-emerald-600 px-6 py-8 text-white shadow-lg shadow-emerald-500/20 sm:px-12 sm:py-14">
           <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
             <div>
               <h3 className="text-xl font-bold tracking-tight sm:text-3xl">さあ、はじめましょう</h3>
