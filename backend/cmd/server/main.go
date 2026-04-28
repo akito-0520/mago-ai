@@ -15,7 +15,9 @@ import (
 
 	"github.com/akito-0520/mago-ai/backend/internal/config"
 	"github.com/akito-0520/mago-ai/backend/internal/infrastructure/linebot"
+	"github.com/akito-0520/mago-ai/backend/internal/infrastructure/postgres"
 	"github.com/akito-0520/mago-ai/backend/internal/interface/http/handler"
+	"github.com/akito-0520/mago-ai/backend/internal/usecase"
 )
 
 func main() {
@@ -51,6 +53,19 @@ func main() {
 	}))
 	e.Use(middleware.Recover()) // panicが起きた時に500エラーに変換
 
+	db, err := postgres.New(cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("postgres connect failed", "err", err)
+		os.Exit(1)
+	}
+	defer func() { // graceful shutdown 時に DB 接続も閉じる
+		err := db.Close()
+		if err != nil {
+			slog.Error("postgres close failed", "err", err)
+			os.Exit(1)
+		}
+	}()
+
 	// lineClient の生成
 	lineClient, err := linebot.New(cfg.LineChannelAccessToken)
 	if err != nil {
@@ -58,8 +73,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Repository 生成
+	lineUser := postgres.NewLineUserRepository(db)
+	registerTokens := postgres.NewRegisterTokenRepository(db)
+
+	// Usecase 生成
+	registerUC := usecase.NewRegisterLineUserByToken(lineUser, registerTokens)
+	respondUC := usecase.NewRespondToIncomingMessage(lineUser, lineClient, registerUC)
+
 	// webhook ハンドラーのセットアップ
-	webhookHandler := handler.Webhook(lineClient, cfg.LineChannelSecret)
+	webhookHandler := handler.Webhook(cfg.LineChannelSecret, respondUC)
 
 	// ルートの登録
 	e.GET("/healthz", handler.Health)

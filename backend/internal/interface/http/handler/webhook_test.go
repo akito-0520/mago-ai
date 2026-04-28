@@ -19,22 +19,29 @@ import (
 	"github.com/stretchr/testify/require" // 検証ヘルパー (require.Equal 等)
 )
 
-type fakeLineGateway struct {
-	mu         sync.Mutex
-	replyCalls []replyCall
-	replyErr   error
+type fakeMessageResponder struct {
+	mu    sync.Mutex
+	calls []respondCall
+	err   error
 }
 
-type replyCall struct {
+type respondCall struct {
+	lineUserID string
 	replyToken string
 	text       string
 }
 
-func (f *fakeLineGateway) Reply(ctx context.Context, replyToken string, text string) error {
+func (f *fakeMessageResponder) Execute(_ context.Context, lineUserID, replyToken, text string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.replyCalls = append(f.replyCalls, replyCall{replyToken, text})
-	return f.replyErr
+	f.calls = append(f.calls, respondCall{lineUserID, replyToken, text})
+	return f.err
+}
+
+func (f *fakeMessageResponder) CallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
 }
 
 // 署名計算 HMAC-SHA256 で body をハッシュ化（鍵は secret）した後に base64 にエンコードしている
@@ -44,69 +51,63 @@ func computeSignature(body, secret string) string {
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
-func (f *fakeLineGateway) ReplyCallCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.replyCalls)
-}
-
 func TestWebhook(t *testing.T) {
 	secret := "test-secret"
-	textMessageBody := `{"events":[{"type":"message","timestamp":1,"replyToken":"abc","message":{"type":"text","id":"1","text":"hello"}}]}`
+	textMessageBody := `{"events":[{"type":"message","timestamp":1,"source":{"type":"user","userId":"U1234567890abcdef"},"replyToken":"abc","message":{"type":"text","id":"1","text":"hello"}}]}`
 
 	tests := []struct {
-		name           string
-		body           string
-		signature      string
-		replyErr       error
-		wantStatus     int
-		wantReplyCalls int
+		name             string
+		body             string
+		signature        string
+		respondErr       error
+		wantStatus       int
+		wantRespondCalls int
 	}{
 		{
-			name:           "正常系",
-			body:           textMessageBody,
-			signature:      computeSignature(textMessageBody, secret),
-			wantStatus:     200,
-			wantReplyCalls: 1,
+			name:             "正常系",
+			body:             textMessageBody,
+			signature:        computeSignature(textMessageBody, secret),
+			wantStatus:       200,
+			wantRespondCalls: 1,
 		},
 		{
-			name:           "signature が空",
-			body:           "{}",
-			signature:      "",
-			wantStatus:     401,
-			wantReplyCalls: 0,
+			name:             "signature が空",
+			body:             "{}",
+			signature:        "",
+			wantStatus:       401,
+			wantRespondCalls: 0,
 		},
 		{
-			name:           "signature の不一致",
-			body:           "{}",
-			signature:      "invalid",
-			wantStatus:     401,
-			wantReplyCalls: 0,
+			name:             "signature の不一致",
+			body:             "{}",
+			signature:        "invalid",
+			wantStatus:       401,
+			wantRespondCalls: 0,
 		},
 		{
-			name:           "events が空",
-			body:           `{"events":[]}`,
-			signature:      computeSignature(`{"events":[]}`, secret),
-			wantStatus:     200,
-			wantReplyCalls: 0,
+			name:             "events が空",
+			body:             `{"events":[]}`,
+			signature:        computeSignature(`{"events":[]}`, secret),
+			wantStatus:       200,
+			wantRespondCalls: 0,
 		},
 		{
-			name:           "Reply API が失敗",
-			body:           textMessageBody,
-			signature:      computeSignature(textMessageBody, secret),
-			replyErr:       errors.New("LINE API down"),
-			wantStatus:     200,
-			wantReplyCalls: 1,
+			name:             "respond.Execute が失敗",
+			body:             textMessageBody,
+			signature:        computeSignature(textMessageBody, secret),
+			respondErr:       errors.New("respond down"),
+			wantStatus:       200,
+			wantRespondCalls: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fake := &fakeLineGateway{replyErr: tt.replyErr}
+			respond := &fakeMessageResponder{err: tt.respondErr}
 
 			// echoインスタンスの作成
 			e := echo.New()
-			e.POST("/webhook", handler.Webhook(fake, secret))
+			e.POST("/webhook", handler.Webhook(secret, respond))
 
 			// リクエスト構築
 			req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(tt.body))
@@ -129,7 +130,7 @@ func TestWebhook(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 
 			// reply の呼び出し回数検証
-			require.Len(t, fake.replyCalls, fake.ReplyCallCount())
+			require.Equal(t, tt.wantRespondCalls, respond.CallCount())
 		})
 	}
 }
