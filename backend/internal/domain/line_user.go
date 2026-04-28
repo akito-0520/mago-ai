@@ -10,5 +10,6 @@ type LineUser struct {
 	LineUserID     string
 	DisplayName    *string
 	SessionResetAt *time.Time
+	RevokedAt      *time.Time
 	CreatedAt      time.Time
 }

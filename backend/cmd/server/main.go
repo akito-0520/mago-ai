@@ -77,7 +77,7 @@ func main() {
 	registerTokens := postgres.NewRegisterTokenRepository(db)
 
 	// Usecase 生成
-	registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens)
+	registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, lineClient)
 	respondUC := usecase.NewRespondToIncomingMessage(lineUsers, lineClient, registerUC)
 
 	// webhook ハンドラーのセットアップ

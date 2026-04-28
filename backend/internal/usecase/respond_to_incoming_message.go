@@ -9,17 +9,19 @@ import (
 const (
 	msgRegistered            = "登録しました。これからお手伝いさせてくださいね。"
 	msgRegistrationRequired  = "まだ登録が済んでいません。お孫さんからもらった 6 桁のコードを送ってください。"
-	msgTokenNotFound         = "コードが違うみたいです。もう一度確認して送ってください。"          // #nosec G101 -- not a real secret
-	msgTokenExpired          = "このコードは期限が切れています。お孫さんに新しいコードをもらってください。" // #nosec G101 -- not a real secret
+	msgTokenNotFound         = "コードが違うみたいです。もう一度確認して送ってください。"          //nolint:gosec // user-facing message, not a credential
+	msgTokenExpired          = "このコードは期限が切れています。お孫さんに新しいコードをもらってください。" //nolint:gosec // user-facing message, not a credential
+	msgRevoked               = "登録が解除されています。再度ご利用される場合は、お孫さんに新しいコードをもらってください。"
 	msgInternalError         = "ごめんなさい、ちょっと調子が悪いみたいです。少し待ってからもう一度送ってください。"
 	msgRespondingPlaceholder = "メッセージありがとうございます。お返事の機能はまだ準備中です。"
 )
 
 // RespondToIncomingMessage はおばあちゃんから受信したメッセージに応じて適切な返信を返す usecase。
 //
-//   - 未登録 + 6桁数字   → 登録試行
-//   - 未登録 + それ以外  → 案内文
-//   - 登録済み           → Claude 応答
+//   - 現役ユーザー         → Claude / placeholder
+//   - 6 桁数字              → 登録試行（新規 or 取り消し済みの復活）
+//   - 取り消し済み + 通常   → 解除メッセージ
+//   - 未登録 + 通常         → 案内文
 type RespondToIncomingMessage struct {
 	lineUsers LineUserRepository
 	line      LineGateway
@@ -46,24 +48,31 @@ func (uc *RespondToIncomingMessage) Execute(
 	replyToken string,
 	text string,
 ) error {
-	exists, err := uc.lineUsers.ExistsByLineUserID(ctx, lineUserID)
+	// 1. 現役ユーザーかチェック
+	activeExists, err := uc.lineUsers.ExistsActiveByLineUserID(ctx, lineUserID)
 	if err != nil {
 		_ = uc.line.Reply(ctx, replyToken, msgInternalError)
 		return err
 	}
-
-	// 登録済みユーザー
-	if exists {
+	if activeExists {
 		return uc.line.Reply(ctx, replyToken, msgRespondingPlaceholder)
 	}
 
-	// 未登録 + 6桁数字でない
-	if !isSixDigits(text) {
-		return uc.line.Reply(ctx, replyToken, msgRegistrationRequired)
+	// 2. 6 桁数字なら登録試行（UPSERT が新規 or 復活を吸収）
+	if isSixDigits(text) {
+		return uc.tryRegister(ctx, lineUserID, replyToken, text)
 	}
 
-	// 未登録 + 6桁数字 → 登録試行
-	return uc.tryRegister(ctx, lineUserID, replyToken, text)
+	// 3. 取り消し済みかチェックして案内を出し分け
+	revokedExists, err := uc.lineUsers.ExistsRevokedByLineUserID(ctx, lineUserID)
+	if err != nil {
+		_ = uc.line.Reply(ctx, replyToken, msgInternalError)
+		return err
+	}
+	if revokedExists {
+		return uc.line.Reply(ctx, replyToken, msgRevoked)
+	}
+	return uc.line.Reply(ctx, replyToken, msgRegistrationRequired)
 }
 
 // tryRegister は登録ユースケースを呼び、結果に応じた返信を行う。
@@ -80,7 +89,7 @@ func (uc *RespondToIncomingMessage) tryRegister(
 	case errors.Is(err, ErrTokenExpired):
 		return uc.line.Reply(ctx, replyToken, msgTokenExpired)
 	case errors.Is(err, ErrLineUserExists):
-		// 安全網
+		// 安全網（ExistsActive で先に弾いてるので通常起きない）
 		return uc.line.Reply(ctx, replyToken, msgRespondingPlaceholder)
 	default:
 		_ = uc.line.Reply(ctx, replyToken, msgInternalError)
