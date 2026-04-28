@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -14,21 +15,27 @@ import (
 // --- fakeLineUserRepository ---
 
 type fakeLineUserRepository struct {
-	existsResult bool
-	existsErr    error
-	createCalls  []domain.LineUser
-	createErr    error
+	activeResult  bool // ExistsActive の結果
+	activeErr     error
+	revokedResult bool // ExistsRevoked の結果
+	revokedErr    error
+	upsertCalls   []domain.LineUser
+	upsertErr     error
 }
 
-func (f *fakeLineUserRepository) ExistsByLineUserID(ctx context.Context, lineUserID string) (bool, error) {
-	return f.existsResult, f.existsErr
+func (f *fakeLineUserRepository) ExistsActiveByLineUserID(_ context.Context, _ string) (bool, error) {
+	return f.activeResult, f.activeErr
 }
 
-func (f *fakeLineUserRepository) Create(ctx context.Context, user domain.LineUser) error {
-	if f.createErr != nil {
-		return f.createErr
+func (f *fakeLineUserRepository) ExistsRevokedByLineUserID(_ context.Context, _ string) (bool, error) {
+	return f.revokedResult, f.revokedErr
+}
+
+func (f *fakeLineUserRepository) Upsert(_ context.Context, user domain.LineUser) error {
+	if f.upsertErr != nil {
+		return f.upsertErr
 	}
-	f.createCalls = append(f.createCalls, user)
+	f.upsertCalls = append(f.upsertCalls, user)
 	return nil
 }
 
@@ -46,11 +53,11 @@ type markUsedCall struct {
 	lineUserID string
 }
 
-func (f *fakeRegisterTokenRepository) FindUnusedByToken(ctx context.Context, token string) (*domain.RegisterToken, error) {
+func (f *fakeRegisterTokenRepository) FindUnusedByToken(_ context.Context, _ string) (*domain.RegisterToken, error) {
 	return f.findResult, f.findErr
 }
 
-func (f *fakeRegisterTokenRepository) MarkUsed(ctx context.Context, token string, lineUserID string) error {
+func (f *fakeRegisterTokenRepository) MarkUsed(_ context.Context, token string, lineUserID string) error {
 	if f.markUsedErr != nil {
 		return f.markUsedErr
 	}
@@ -70,8 +77,6 @@ func TestRegisterLineUserByToken_Execute(t *testing.T) {
 		Token:     token,
 		AdminID:   adminID,
 		ExpiresAt: time.Now().Add(1 * time.Hour),
-		UsedAt:    nil,
-		UsedBy:    nil,
 		CreatedAt: time.Now().Add(-1 * time.Hour),
 	}
 
@@ -79,53 +84,68 @@ func TestRegisterLineUserByToken_Execute(t *testing.T) {
 	expiredToken := &domain.RegisterToken{
 		Token:     token,
 		AdminID:   adminID,
-		ExpiresAt: time.Now().Add(-1 * time.Hour), // 過去
-		UsedAt:    nil,
-		UsedBy:    nil,
+		ExpiresAt: time.Now().Add(-1 * time.Hour),
 		CreatedAt: time.Now().Add(-25 * time.Hour),
 	}
 
 	tests := []struct {
 		name              string
-		existsResult      bool
-		existsErr         error
 		findResult        *domain.RegisterToken
 		findErr           error
+		upsertErr         error
 		markUsedErr       error
-		createErr         error
+		profileResult     *usecase.LineProfile
+		profileErr        error
 		wantErr           error
-		wantCreateCalls   int
+		wantUpsertCalls   int
 		wantMarkUsedCalls int
+		wantDisplayName   *string // upsertCalls[0].DisplayName を検証する場合
 	}{
 		{
-			name:              "正常系：未登録ユーザー + 有効トークン → 登録成功",
-			existsResult:      false,
+			name:              "正常系：有効トークン + プロフィール取得成功 → 登録成功",
 			findResult:        validToken,
-			wantErr:           nil,
-			wantCreateCalls:   1,
+			profileResult:     &usecase.LineProfile{UserID: lineUserID, DisplayName: "田中花子"},
+			wantUpsertCalls:   1,
 			wantMarkUsedCalls: 1,
+			wantDisplayName:   strPtr("田中花子"),
 		},
 		{
-			name:              "既に登録済みのユーザー",
-			existsResult:      true,
-			wantErr:           usecase.ErrLineUserExists,
-			wantCreateCalls:   0,
-			wantMarkUsedCalls: 0,
+			name:              "プロフィール取得失敗 → 登録は成功（display_name は null）",
+			findResult:        validToken,
+			profileErr:        errors.New("get profile failed"),
+			wantUpsertCalls:   1,
+			wantMarkUsedCalls: 1,
+			wantDisplayName:   nil,
 		},
 		{
-			name:              "トークンが見つからない（不正なコード）",
-			existsResult:      false,
-			findResult:        nil, // 見つからない = nil
+			name:              "プロフィールの DisplayName が空 → display_name は null",
+			findResult:        validToken,
+			profileResult:     &usecase.LineProfile{UserID: lineUserID, DisplayName: ""},
+			wantUpsertCalls:   1,
+			wantMarkUsedCalls: 1,
+			wantDisplayName:   nil,
+		},
+		{
+			name:              "トークンが見つからない",
+			findResult:        nil,
 			wantErr:           usecase.ErrTokenNotFound,
-			wantCreateCalls:   0,
+			wantUpsertCalls:   0,
 			wantMarkUsedCalls: 0,
 		},
 		{
 			name:              "トークンが期限切れ",
-			existsResult:      false,
 			findResult:        expiredToken,
 			wantErr:           usecase.ErrTokenExpired,
-			wantCreateCalls:   0,
+			wantUpsertCalls:   0,
+			wantMarkUsedCalls: 0,
+		},
+		{
+			name:              "Upsert で衝突 (現役ユーザーが既に存在)",
+			findResult:        validToken,
+			profileResult:     &usecase.LineProfile{UserID: lineUserID, DisplayName: "田中花子"},
+			upsertErr:         usecase.ErrLineUserExists,
+			wantErr:           usecase.ErrLineUserExists,
+			wantUpsertCalls:   0, // upsertErr が返るので append されない
 			wantMarkUsedCalls: 0,
 		},
 	}
@@ -133,17 +153,19 @@ func TestRegisterLineUserByToken_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lineUsers := &fakeLineUserRepository{
-				existsResult: tt.existsResult,
-				existsErr:    tt.existsErr,
-				createErr:    tt.createErr,
+				upsertErr: tt.upsertErr,
 			}
 			registerTokens := &fakeRegisterTokenRepository{
 				findResult:  tt.findResult,
 				findErr:     tt.findErr,
 				markUsedErr: tt.markUsedErr,
 			}
+			line := &fakeLineGateway{
+				profileResult: tt.profileResult,
+				profileErr:    tt.profileErr,
+			}
 
-			uc := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens)
+			uc := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, line)
 			err := uc.Execute(context.Background(), lineUserID, token)
 
 			if tt.wantErr != nil {
@@ -151,8 +173,24 @@ func TestRegisterLineUserByToken_Execute(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			require.Len(t, lineUsers.createCalls, tt.wantCreateCalls)
+			require.Len(t, lineUsers.upsertCalls, tt.wantUpsertCalls)
 			require.Len(t, registerTokens.markUsedCalls, tt.wantMarkUsedCalls)
+
+			if tt.wantUpsertCalls > 0 {
+				got := lineUsers.upsertCalls[0]
+				require.Equal(t, lineUserID, got.LineUserID)
+				require.Equal(t, adminID, got.AdminID)
+				if tt.wantDisplayName == nil {
+					require.Nil(t, got.DisplayName)
+				} else {
+					require.NotNil(t, got.DisplayName)
+					require.Equal(t, *tt.wantDisplayName, *got.DisplayName)
+				}
+			}
 		})
 	}
+}
+
+func strPtr(s string) *string {
+	return &s
 }

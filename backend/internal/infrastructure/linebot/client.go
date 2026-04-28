@@ -23,7 +23,7 @@ func New(channelAccessToken string) (*Client, error) {
 }
 
 // Reply は指定の reply token に対してテキストメッセージを返信する。
-func (c *Client) Reply(ctx context.Context, replyToken string, text string) error {
+func (c *Client) Reply(_ context.Context, replyToken string, text string) error {
 	_, err := c.api.ReplyMessage(
 		&messaging_api.ReplyMessageRequest{
 			ReplyToken: replyToken,
@@ -33,6 +33,19 @@ func (c *Client) Reply(ctx context.Context, replyToken string, text string) erro
 		},
 	)
 	return err
+}
+
+// GetProfile は LINE User ID からユーザープロフィールを取得する。
+// 友だち追加していないユーザーやブロックされたユーザーの場合はエラーを返す。
+func (c *Client) GetProfile(_ context.Context, lineUserID string) (*usecase.LineProfile, error) {
+	profile, err := c.api.GetProfile(lineUserID)
+	if err != nil {
+		return nil, err
+	}
+	return &usecase.LineProfile{
+		UserID:      profile.UserId,
+		DisplayName: profile.DisplayName,
+	}, nil
 }
 
 var _ usecase.LineGateway = (*Client)(nil)
