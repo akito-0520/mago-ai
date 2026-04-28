@@ -113,7 +113,7 @@ export default async function Home() {
           <FeatureCard
             icon={<ShieldCheck className="size-5" />}
             title="孫が見守れる管理画面"
-            body="複数の祖父母を 1 アカウントで管理。会話ログを確認し、登録コードを発行できます。"
+            body="複数の祖父母を 1 アカウントで管理。6 桁の登録コードを発行して招待し、表示名の編集や登録解除ができます。"
           />
         </div>
       </section>

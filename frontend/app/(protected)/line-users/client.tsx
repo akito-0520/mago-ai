@@ -107,7 +107,7 @@ export function LineUsersClient({ initialUsers }: { initialUsers: LineUser[] }) 
             </span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            表示名は鉛筆アイコンから編集できます。
+            表示名は LINE プロフィールから自動取得されます。鉛筆アイコンから編集できます。
           </p>
         </div>
       </div>
@@ -315,7 +315,8 @@ export function LineUsersClient({ initialUsers }: { initialUsers: LineUser[] }) 
             <AlertDialogTitle>登録を取り消しますか？</AlertDialogTitle>
             <AlertDialogDescription>
               <span className="font-medium text-foreground">{revokeName}</span>{" "}
-              の登録を取り消します。会話履歴も Bot から見えなくなります。この操作は元に戻せません。
+              の登録を取り消します。Bot は応答を停止します。再登録するには、新しい 6
+              桁コードを発行して LINE で送信してもらってください。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

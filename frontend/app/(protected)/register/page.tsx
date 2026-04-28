@@ -26,7 +26,8 @@ export default function RegisterPage() {
     if (error) {
       if (error.message.includes("too many unused tokens")) {
         toast.error("発行できません", {
-          description: "未使用のコードが 3 本あります。使われるまで新規発行はできません。",
+          description:
+            "未使用のコードが 3 本あります。使われるか、1 時間で期限切れになるまで新規発行はできません。",
         });
       } else {
         toast.error("発行に失敗しました", { description: error.message });
@@ -59,7 +60,7 @@ export default function RegisterPage() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">登録コード発行</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            おばあちゃんに伝える 6 桁のコードを発行します。24 時間有効・1 回限り。
+            おばあちゃんに伝える 6 桁のコードを発行します。1 時間有効・1 回限り。
           </p>
         </div>
       </div>

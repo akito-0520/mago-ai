@@ -20,14 +20,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 現在のリポジトリ状態
 
-Phase 1（外部サービス設定）と CI 初期設定、バックエンドの config ローダーまで完了。LINE webhook ハンドラやユースケースは未実装。
+Phase 1（外部サービス設定）、Phase 2（登録フロー）、フロントの管理画面（ログイン・登録コード発行・登録ユーザー管理）まで完了。Fly.io + Vercel + Supabase に本番デプロイ済み。Claude API 統合、Rich Menu、会話ログ閲覧画面は未実装。
 
 ```
 mago-ai/
-├── frontend/          # Next.js + Tailwind + shadcn/ui + Prettier（初期 scaffold 済）
-├── backend/           # Go + Echo（go.mod + config パッケージのみ実装済）
-├── supabase/          # init_schema migration + dev_seed snippet
-├── .github/workflows/ # ci.yml（PR でフル lint + test + gitleaks）
+├── frontend/          # Next.js + Tailwind + shadcn/ui + sonner + lucide-react
+├── backend/           # Go + Echo + sqlx + pgx（Clean Architecture、登録フロー実装済み）
+├── supabase/          # init_schema + add_generate_register_token + add_revoke_and_update_display_name
+├── .github/workflows/ # ci.yml（PR で lint + test + gitleaks）/ cd.yml（main で Fly.io 自動デプロイ）
 ├── mise.toml          # ツール固定（go / node / supabase / cloudflared / golangci-lint）
 └── .gitignore
 ```
@@ -35,12 +35,12 @@ mago-ai/
 ## アーキテクチャ概要
 
 ```
-おばあちゃん ── LINE ──▶ LINE Platform ──▶ Go/Echo (Fly.io 東京)
+おばあちゃん ── LINE ──▶ LINE Platform ──▶ Go/Echo (Fly.io 東京、api.mago-ai.akiton.net)
                                               │
-                                              ├─▶ Anthropic Claude API
-                                              └─▶ Supabase Postgres
+                                              ├─▶ Anthropic Claude API（未実装）
+                                              └─▶ Supabase Postgres（pgbouncer pooler 経由）
                                                      ▲
-孫 ──── Web ────▶ Vercel (Next.js) ─── Supabase Auth + RLS
+孫 ──── Web ────▶ Vercel (Next.js) ─── Supabase Auth + RLS + RPC
 ```
 
 - **LINE webhook** は Go/Echo が受信・署名検証 → 即 200 OK 返却 → **goroutine で Claude 呼び出し + Reply API**（graceful shutdown で進行中 goroutine を待機）
@@ -57,14 +57,15 @@ mago-ai/
 backend/
 ├── cmd/server/main.go              # DI 組み立て / Echo 起動 / graceful shutdown
 ├── internal/
-│   ├── domain/                     # 純粋：標準ライブラリのみ依存
-│   ├── usecase/                    # RespondToIncomingMessage / RegisterLineUserByToken 等
-│   │   └── port.go                 # Ports（ConversationRepository / ClaudeGateway / LineGateway）
+│   ├── domain/                     # 純粋：標準ライブラリのみ依存（LineUser / RegisterToken）
+│   ├── usecase/                    # RespondToIncomingMessage / RegisterLineUserByToken
+│   │   └── port.go                 # Ports（LineGateway / LineUserRepository / RegisterTokenRepository / 将来 ClaudeGateway / ConversationRepository）
 │   ├── infrastructure/             # Ports の具象実装
-│   │   ├── postgres/               # sqlx + pgx/v5 stdlib
-│   │   ├── claude/                 # anthropic-sdk-go ラッパ
-│   │   └── linebot/                # line-bot-sdk-go ラッパ
-│   ├── interface/http/             # Echo handler / middleware / router
+│   │   ├── postgres/               # sqlx + pgx/v5 stdlib（toSnakeCase MapperFunc で snake_case 自動変換）
+│   │   ├── claude/                 # anthropic-sdk-go ラッパ（未実装）
+│   │   └── linebot/                # line-bot-sdk-go ラッパ（Reply / GetProfile）
+│   ├── interface/http/handler/     # Echo handler（webhook + healthz）
+│   │                               # MessageResponder interface は handler パッケージ内で定義（consumer-defined）
 │   └── config/                     # env → Config struct
 ├── go.mod
 ├── Dockerfile
@@ -73,6 +74,7 @@ backend/
 
 依存方向：`interface/http → usecase ← infrastructure`、`usecase → domain`。
 `domain` には external import を入れない（pgx / echo / anthropic を漏らさない）。
+`domain` の UUID は `string` 型で扱う（DB が `gen_random_uuid()` で生成、Go 側で生成しない方針）。
 
 ### フロントエンドのディレクトリ設計
 
@@ -81,17 +83,28 @@ frontend/
 ├── app/
 │   ├── (auth)/login/               # Google OAuth ボタン
 │   ├── (protected)/
-│   │   ├── conversations/          # ログ一覧 + 詳細
-│   │   ├── line-users/             # 紐付け済み LINE ユーザー管理（display_name 編集）
-│   │   └── register/               # 登録コード発行ページ
-│   ├── auth/callback/              # Supabase OAuth コールバック
-│   └── layout.tsx
-├── components/ui/                   # shadcn/ui が生成した component
-├── lib/supabase/                    # server / middleware / type 定義
-└── middleware.ts                    # @supabase/ssr のセッション更新
+│   │   ├── conversations/          # ログ一覧 + 詳細（未実装）
+│   │   ├── line-users/             # 登録ユーザー管理（display_name 編集 + 取り消し）
+│   │   │   ├── page.tsx            # Server Component（初期データを RLS 経由で fetch）
+│   │   │   └── client.tsx          # Client Component（編集 / 取り消し RPC + 楽観的更新）
+│   │   ├── register/               # 登録コード発行ページ（generate_register_token RPC）
+│   │   └── layout.tsx              # 共通ヘッダー + 認証チェック（getUser → /login redirect）
+│   ├── auth/callback/route.ts      # Supabase OAuth コールバック（exchangeCodeForSession）
+│   ├── layout.tsx                   # ルート layout
+│   └── page.tsx
+├── components/ui/                   # shadcn/ui が生成した component（Button / Input / AlertDialog）
+├── lib/supabase/                    # browser / server / middleware の 3 種クライアント
+└── proxy.ts                         # Next.js 16 の middleware（旧 middleware.ts）
 ```
 
-スタック：**Tailwind + shadcn/ui + TanStack Table + @supabase/ssr**、整形は Prettier、lint は ESLint。RSC で `auth.uid()` を使った RLS 越しフェッチ。
+スタック：**Tailwind + shadcn/ui + sonner + lucide-react + @supabase/ssr**、整形は Prettier、lint は ESLint。RSC で `auth.uid()` を使った RLS 越しフェッチ。
+
+**Next.js 16 の注意点**：
+
+- middleware は `proxy.ts` という名前で root に配置、関数名も `proxy()`（旧 `middleware`）
+- Server Component で初期データ fetch、Client Component で操作、楽観的更新で refetch を避ける
+- `useEffect` 内で同期的 setState を呼ぶとエラー → Server Component 経由で初期データを渡す形にする
+- `'use client'` のコンポーネントでも build 時に評価されるので、`createClient()` は **モジュール / コンポーネントトップではなく、ハンドラ内で呼ぶ**（Vercel build で env 不足を回避）
 
 ## データモデル
 
@@ -102,11 +115,14 @@ create table line_users (
   id                uuid        primary key default gen_random_uuid(),
   admin_id          uuid        not null references auth.users(id) on delete cascade,
   line_user_id      text        not null unique,   -- LINE の生 User ID（U... で始まる）
-  display_name      text,                          -- 管理者がつけるニックネーム
+  display_name      text,                          -- 登録時に LINE プロフィールから取得、管理者が編集可
   session_reset_at  timestamptz,                   -- おばあちゃんが Rich Menu で押したリセット時刻
+  revoked_at        timestamptz,                   -- 取り消し時刻（NULL = 現役、soft delete）
   created_at        timestamptz not null default now()
 );
 create index on line_users (admin_id);
+create index line_users_active_idx
+  on line_users (line_user_id) where revoked_at is null;  -- 現役ユーザー検索の高速化（部分インデックス）
 
 create table conversations (
   id                            bigserial   primary key,
@@ -126,7 +142,7 @@ create index on conversations (line_user_id, created_at desc);
 create table register_tokens (
   token       text        primary key check (token ~ '^[0-9]{6}$'),  -- 数字 6 桁
   admin_id    uuid        not null references auth.users(id) on delete cascade,
-  expires_at  timestamptz not null,                -- created_at + 24 時間
+  expires_at  timestamptz not null,                -- created_at + 1 時間
   used_at     timestamptz,                         -- 使用時刻。使い捨て（NULL = 未使用）
   used_by     uuid        references line_users(id) on delete set null,
   created_at  timestamptz not null default now()
@@ -134,19 +150,20 @@ create table register_tokens (
 create index on register_tokens (admin_id);
 ```
 
-実 SQL は `supabase/migrations/<ts>_init_schema.sql` に格納。
+実 SQL は `supabase/migrations/` 配下：
+
+- `<ts>_init_schema.sql`：3 テーブル + RLS の初期スキーマ
+- `<ts>_add_generate_register_token.sql`：6 桁トークン発行 RPC
+- `<ts>_add_revoke_and_update_display_name.sql`：取り消し + 表示名編集 RPC + RLS 最適化
 
 ### RLS
 
 全テーブル RLS 有効。backend は Supabase の service_role キーで bypass するため RLS 対象外。admin（`auth.users`）の JWT 経由での権限：
 
 ```sql
--- line_users: 自分の配下のみ SELECT + display_name などを UPDATE 可
+-- line_users: 自分の配下のみ SELECT 可。書き込みは RPC 経由のみ
 create policy line_users_select_own on line_users for select
-  using (admin_id = auth.uid());
-create policy line_users_update_own on line_users for update
-  using (admin_id = auth.uid())
-  with check (admin_id = auth.uid());
+  using (admin_id = (select auth.uid()));
 
 -- conversations: 自分の配下の line_user の会話のみ SELECT
 create policy conversations_select_own on conversations for select
@@ -154,33 +171,58 @@ create policy conversations_select_own on conversations for select
     exists (
       select 1 from line_users lu
       where lu.id = conversations.line_user_id
-        and lu.admin_id = auth.uid()
+        and lu.admin_id = (select auth.uid())
     )
   );
 
--- register_tokens: 自分が発行したもののみ SELECT + INSERT
+-- register_tokens: 自分が発行したもののみ SELECT。INSERT は RPC 経由のみ
 create policy register_tokens_select_own on register_tokens for select
-  using (admin_id = auth.uid());
-create policy register_tokens_insert_own on register_tokens for insert
-  with check (admin_id = auth.uid());
+  using (admin_id = (select auth.uid()));
 ```
 
-INSERT/UPDATE/DELETE 無し = 明示的に不許可（例：`line_users` の DELETE、`conversations` の任意書き込み、`register_tokens` の UPDATE）。
+`auth.uid()` は `(select auth.uid())` でラップ → 行ごとに再評価されず InitPlan で 1 回評価（パフォーマンス最適化）。
+
+直接の INSERT/UPDATE/DELETE は **明示的に不許可**。書き込みは以下の RPC（`security definer`）経由：
+
+- `generate_register_token() returns text`：6 桁トークン発行（1 admin あたり未使用 3 本上限、1 時間有効）
+- `revoke_line_user(p_line_user_id uuid) returns void`：自分の配下のユーザーを取り消し
+- `update_line_user_display_name(p_line_user_id uuid, p_display_name text) returns void`：表示名編集（空白文字は NULL に正規化）
+
+各 RPC は `auth.uid()` 検証 + 自分の配下のみ操作という制約で安全性を確保。
 
 ## 登録フロー
 
-1. 孫が管理画面の「登録コード発行」ボタンを押す → **数字 6 桁**のトークンが表示（24 時間有効、1 管理者 × 未使用最大 3 本）
+1. 孫が管理画面の「登録コード発行」ボタンを押す → **数字 6 桁**のトークンが表示（**1 時間有効**、1 管理者 × 未使用最大 3 本）
 2. 孫がおばあちゃんに「これを LINE で送って」と伝える
 3. おばあちゃんが Bot にトークンを送信
-4. Bot は送信元 `line_user_id` が `line_users` に存在するか確認
-   - **未登録** かつ メッセージが 6 桁数字 → `register_tokens` を検索
-     - 一致 → `line_users` に INSERT、`register_tokens.used_at` と `used_by` を埋めて「登録しました」と返信
-     - 不一致 → 「コードが違うみたいです。もう一度確認して送ってください」
-   - **未登録** かつ 6 桁数字でない → 「まだ登録が済んでいません。お孫さんからもらったコードを送ってください」
-   - **登録済み** かつ `#新しい質問` → `session_reset_at` を更新し「新しい質問をどうぞ」と返信
-   - **登録済み** かつ 通常メッセージ → Claude 応答 + 会話ログ保存
+4. Bot は送信元 `line_user_id` の状態に応じて分岐：
 
-トークン入力はレート制限で保護（**1 LINE user あたり 1 時間 5 回 / 1 日 30 回**、超過時は「少し時間を置いてからもう一度試してください」）。レート制限は backend のインメモリカウンタで実装（MVP は単一インスタンス運用）。
+```
+1. ExistsActiveByLineUserID?
+   ├── Yes → Claude 応答（暫定で「準備中」固定文言）
+   └── No  → Step 2
+
+2. text が 6 桁数字?
+   ├── Yes → tryRegister()
+   │         ├── 成功 → 「登録しました」（新規 INSERT or 取り消し済みからの復活）
+   │         ├── ErrTokenNotFound → 「コードが違う」
+   │         └── ErrTokenExpired  → 「コードの期限切れ」
+   └── No  → Step 3
+
+3. ExistsRevokedByLineUserID?
+   ├── Yes → 「登録が解除されています、お孫さんに新しいコードをもらってください」
+   └── No  → 「まだ登録が済んでいません、コードを送ってください」
+```
+
+**実装のポイント**：
+
+- **`RegisterLineUserByToken` usecase**：トークン検証 → LINE プロフィール取得（ベストエフォート） → `line_users` Upsert → `register_tokens.used_at/used_by` を埋める
+- **`RespondToIncomingMessage` usecase**：上記の分岐を担当、handler は `MessageResponder` interface 経由でこれを呼ぶ
+- **登録時の display_name 自動取得**：`LineGateway.GetProfile(lineUserID)` で LINE プロフィールから取得。失敗しても登録は成功（`display_name` は NULL）
+- **取り消し → 復活**：`INSERT ... ON CONFLICT DO UPDATE WHERE revoked_at IS NOT NULL` で「新規 / 復活」を 1 SQL で吸収。現役行と衝突したら `RETURNING` が空 → `ErrLineUserExists`
+- **取り消されたユーザーの応答**：6 桁トークンを送れば復活、それ以外は `msgRevoked` で明示的に解除を通知
+
+レート制限は MVP では未実装。必要になったら backend のインメモリカウンタで保護予定（**1 LINE user あたり 1 時間 5 回 / 1 日 30 回**）。
 
 Bot 受信処理は **`RegisterLineUserByToken`** と **`RespondToIncomingMessage`** の 2 ユースケースに分離。
 
@@ -264,13 +306,16 @@ Next.js の DB 型は `supabase gen types typescript --local > frontend/lib/data
 
 ## CI/CD
 
-GitHub Actions。現時点では `ci.yml`（PR トリガー）のみ：
+GitHub Actions：
 
-- **backend**：`golangci-lint run` + `go test ./...`
-- **frontend**：`npm run lint` + `npm run typecheck` + `npm run format:check` + `npm run build`
-- **gitleaks**：リポジトリ全体のシークレットスキャン
-
-デプロイ用の `deploy-backend.yml` / `deploy-supabase.yml` は Fly.io / Supabase のプロジェクト作成後に追加予定。Vercel は GitHub 連携の自動デプロイに任せる（PR プレビュー URL を自動生成）。
+- **`ci.yml`**（PR トリガー）：
+  - **backend**：`golangci-lint run` + `go test ./...`
+  - **frontend**：`npm run lint` + `npm run typecheck` + `npm run format:check` + `npm run build`
+  - **gitleaks**：リポジトリ全体のシークレットスキャン（`permissions: pull-requests: write` 必要、誤検知は `// gitleaks:allow` で除外）
+- **`cd.yml`**（main への push トリガー、`backend/**` 変更時）：
+  - `flyctl deploy --remote-only` で Fly.io にバックエンドを自動デプロイ
+- **Supabase マイグレーション**：CD なし、`supabase db push` をローカルから手動実行
+- **Vercel**：GitHub 連携の自動デプロイ（PR プレビュー URL も自動生成）
 
 ## テスト方針
 
@@ -307,13 +352,19 @@ TDD 原則：**テストを先に書いて失敗させ、実装を通す** ─�
 
 ## 保留中の決定事項
 
-以下は実装着手前 or 初期実装中に詰める：
+以下は次の実装フェーズで詰める：
 
-- システムプロンプト本文（ペルソナの距離感、雑談許容範囲、長さガイド等）
-- Rich Menu の画像デザインと LINE チャンネルへの登録手順
-- LINE webhook 署名検証ミドルウェアの実装詳細（Echo middleware として差し込む）
-- `main.go` の DI ワイヤリング
-- sqlx の connection pool 設定（`SetMaxOpenConns` 等）
+- **システムプロンプト本文**（ペルソナの距離感、雑談許容範囲、長さガイド等）
+- **Rich Menu の画像デザインと LINE チャンネルへの登録手順**
+- **会話ログ閲覧画面**（`/conversations`、TanStack Table 等）
+- **レート制限**（インメモリカウンタ、必要になったら）
+- **エラーログ検証テスト**（slog 出力をキャプチャしてアサート、必要になったら）
+
+完了済み：
+
+- ~~`main.go` の DI ワイヤリング~~ → 完了
+- ~~sqlx の connection pool 設定~~ → `postgres.New` で `SetMaxOpenConns(20)` / `SetMaxIdleConns(5)` 等を設定済み
+- ~~LINE webhook 署名検証~~ → SDK の `webhook.ParseRequest` を使用、handler 内で完結
 
 ## 開発方針
 
