@@ -5,12 +5,13 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 
 export default function RegisterPage() {
-  const supabase = createClient();
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleGenerate = async () => {
+    const supabase = createClient();
+
     setLoading(true);
     setError(null);
     setToken(null);
