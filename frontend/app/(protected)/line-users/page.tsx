@@ -11,7 +11,11 @@ export default async function LineUsersPage() {
     .order("created_at", { ascending: false });
 
   if (error) {
-    return <div className="rounded-md bg-red-50 p-4 text-red-700">エラー: {error.message}</div>;
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        エラー: {error.message}
+      </div>
+    );
   }
 
   return <LineUsersClient initialUsers={(data ?? []) as LineUser[]} />;
