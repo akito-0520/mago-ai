@@ -62,7 +62,6 @@ func main() {
 		err := db.Close()
 		if err != nil {
 			slog.Error("postgres close failed", "err", err)
-			os.Exit(1)
 		}
 	}()
 
@@ -74,12 +73,12 @@ func main() {
 	}
 
 	// Repository 生成
-	lineUser := postgres.NewLineUserRepository(db)
+	lineUsers := postgres.NewLineUserRepository(db)
 	registerTokens := postgres.NewRegisterTokenRepository(db)
 
 	// Usecase 生成
-	registerUC := usecase.NewRegisterLineUserByToken(lineUser, registerTokens)
-	respondUC := usecase.NewRespondToIncomingMessage(lineUser, lineClient, registerUC)
+	registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens)
+	respondUC := usecase.NewRespondToIncomingMessage(lineUsers, lineClient, registerUC)
 
 	// webhook ハンドラーのセットアップ
 	webhookHandler := handler.Webhook(cfg.LineChannelSecret, respondUC)
