@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { HeaderNav } from "./nav";
 
 export default async function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -12,14 +13,9 @@ export default async function ProtectedLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="border-b bg-white px-6 py-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold">mago.ai 管理画面</h1>
-          <p className="text-sm text-gray-600">{user.email}</p>
-        </div>
-      </header>
-      <main className="mx-auto max-w-3xl p-6">{children}</main>
+    <div className="min-h-screen bg-linear-to-b from-slate-50 to-white">
+      <HeaderNav email={user.email} />
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>
     </div>
   );
 }
