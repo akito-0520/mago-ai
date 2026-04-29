@@ -4,7 +4,16 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Check, Copy, ExternalLink, LogOut, QrCode, Ticket, Users } from "lucide-react";
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  LogOut,
+  MessageSquare,
+  QrCode,
+  Ticket,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -20,6 +29,7 @@ import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/line-users", label: "登録ユーザー", icon: Users },
+  { href: "/conversations", label: "会話ログ", icon: MessageSquare },
   { href: "/register", label: "登録コード発行", icon: Ticket },
 ];
 

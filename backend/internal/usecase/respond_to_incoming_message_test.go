@@ -41,97 +41,186 @@ func (f *fakeLineGateway) GetProfile(_ context.Context, lineUserID string) (*use
 	return f.profileResult, nil
 }
 
+// --- fakeConversationRepository ---
+
+type fakeConversationRepository struct {
+	recentResult    []domain.Conversation
+	recentErr       error
+	createUserCalls []conversationCall
+	createUserErr   error
+	createAsstCalls []assistantCall
+	createAsstErr   error
+}
+
+type conversationCall struct {
+	lineUserID string
+	content    string
+}
+
+type assistantCall struct {
+	lineUserID string
+	content    string
+	meta       domain.AssistantMeta
+}
+
+func (f *fakeConversationRepository) Recent(_ context.Context, _ string, _ time.Time, _ int) ([]domain.Conversation, error) {
+	if f.recentErr != nil {
+		return nil, f.recentErr
+	}
+	return f.recentResult, nil
+}
+
+func (f *fakeConversationRepository) CreateUser(_ context.Context, lineUserID, content string) error {
+	if f.createUserErr != nil {
+		return f.createUserErr
+	}
+	f.createUserCalls = append(f.createUserCalls, conversationCall{lineUserID, content})
+	return nil
+}
+
+func (f *fakeConversationRepository) CreateAssistant(_ context.Context, lineUserID, content string, meta domain.AssistantMeta) error {
+	if f.createAsstErr != nil {
+		return f.createAsstErr
+	}
+	f.createAsstCalls = append(f.createAsstCalls, assistantCall{lineUserID, content, meta})
+	return nil
+}
+
+// --- fakeClaudeGateway ---
+
+type fakeClaudeGateway struct {
+	completeResult *usecase.ClaudeResponse
+	completeErr    error
+	completeCalls  []usecase.ClaudeRequest
+}
+
+func (f *fakeClaudeGateway) Complete(_ context.Context, req usecase.ClaudeRequest) (*usecase.ClaudeResponse, error) {
+	f.completeCalls = append(f.completeCalls, req)
+	if f.completeErr != nil {
+		return nil, f.completeErr
+	}
+	if f.completeResult == nil {
+		return &usecase.ClaudeResponse{Content: "ok", Model: "claude-test"}, nil
+	}
+	return f.completeResult, nil
+}
+
 func TestRespondToIncomingMessage_Execute(t *testing.T) {
 	const (
 		lineUserID = "U1234567890abcdef"
-		replyToken = "abcdef0123456789" //nolint:gosec // gitleaks:allow -- test fixture
+		userUUID   = "11111111-1111-1111-1111-111111111111"
+		replyToken = "test-reply-token-001"
 		adminID    = "00000000-0000-0000-0000-000000000001"
 	)
+
+	now := time.Now()
+	activeUser := &domain.LineUser{
+		ID:         userUUID,
+		AdminID:    adminID,
+		LineUserID: lineUserID,
+		CreatedAt:  now.Add(-1 * time.Hour),
+	}
 
 	validToken := &domain.RegisterToken{
 		Token:     "123456",
 		AdminID:   adminID,
-		ExpiresAt: time.Now().Add(1 * time.Hour),
+		ExpiresAt: now.Add(1 * time.Hour),
 	}
 
 	expiredToken := &domain.RegisterToken{
 		Token:     "123456",
 		AdminID:   adminID,
-		ExpiresAt: time.Now().Add(-1 * time.Hour),
+		ExpiresAt: now.Add(-1 * time.Hour),
 	}
 
 	tests := []struct {
-		name          string
-		activeResult  bool
-		activeErr     error
-		revokedResult bool
-		findResult    *domain.RegisterToken
-		text          string
-		wantReplyText string
-		wantErrSubstr string
+		name           string
+		activeUser     *domain.LineUser
+		activeErr      error
+		revokedResult  bool
+		findToken      *domain.RegisterToken
+		claudeResp     *usecase.ClaudeResponse
+		claudeErr      error
+		text           string
+		wantReplyText  string
+		wantClaudeCall int
+		wantUserSave   int
+		wantAsstSave   int
+		wantErrSubstr  string
 	}{
 		{
-			name:          "登録済みユーザー",
-			activeResult:  true,
-			text:          "こんにちは",
-			wantReplyText: "メッセージありがとうございます。お返事の機能はまだ準備中です。",
+			name:           "現役ユーザー + 通常メッセージ → Claude 応答",
+			activeUser:     activeUser,
+			text:           "iPhoneで写真を送りたい",
+			claudeResp:     &usecase.ClaudeResponse{Content: "「写真」アプリを開いてください。", Model: "claude-sonnet-4-6"},
+			wantReplyText:  "「写真」アプリを開いてください。",
+			wantClaudeCall: 1,
+			wantUserSave:   1,
+			wantAsstSave:   1,
+		},
+		{
+			name:          "現役ユーザー + #新しい質問 → セッションリセット",
+			activeUser:    activeUser,
+			text:          "#新しい質問",
+			wantReplyText: "新しい質問をどうぞ。前のお話はいったんおしまいにしますね。",
+		},
+		{
+			name:           "Claude 失敗 → エラーメッセージ + assistant 行は保存しない",
+			activeUser:     activeUser,
+			text:           "助けて",
+			claudeErr:      errors.New("rate limit exceeded"),
+			wantReplyText:  "うまくお答えできませんでした。少し時間を置いてからもう一度送ってみてください。",
+			wantClaudeCall: 1,
+			wantUserSave:   1,
+			wantAsstSave:   0,
+			wantErrSubstr:  "rate limit",
 		},
 		{
 			name:          "未登録 + 6桁数字 + 有効トークン → 登録成功",
-			activeResult:  false,
+			activeUser:    nil,
 			revokedResult: false,
-			findResult:    validToken,
+			findToken:     validToken,
 			text:          "123456",
 			wantReplyText: "登録しました。これからお手伝いさせてくださいね。",
 		},
 		{
 			name:          "未登録 + 6桁数字 + トークン未発行",
-			activeResult:  false,
-			revokedResult: false,
-			findResult:    nil,
+			activeUser:    nil,
+			findToken:     nil,
 			text:          "999999",
 			wantReplyText: "コードが違うみたいです。もう一度確認して送ってください。",
 		},
 		{
 			name:          "未登録 + 6桁数字 + 期限切れ",
-			activeResult:  false,
-			revokedResult: false,
-			findResult:    expiredToken,
+			activeUser:    nil,
+			findToken:     expiredToken,
 			text:          "123456",
 			wantReplyText: "このコードは期限が切れています。お孫さんに新しいコードをもらってください。",
 		},
 		{
-			name:          "未登録 + 6桁数字でない",
-			activeResult:  false,
+			name:          "未登録 + 6桁数字でない → 登録案内",
+			activeUser:    nil,
 			revokedResult: false,
 			text:          "こんにちは",
 			wantReplyText: "まだ登録が済んでいません。お孫さんからもらった 6 桁のコードを送ってください。",
 		},
 		{
 			name:          "取り消し済み + 6桁数字でない → 解除メッセージ",
-			activeResult:  false,
+			activeUser:    nil,
 			revokedResult: true,
 			text:          "こんにちは",
 			wantReplyText: "登録が解除されています。再度ご利用される場合は、お孫さんに新しいコードをもらってください。",
 		},
 		{
 			name:          "取り消し済み + 6桁数字 + 有効トークン → 復活成功",
-			activeResult:  false,
+			activeUser:    nil,
 			revokedResult: true,
-			findResult:    validToken,
+			findToken:     validToken,
 			text:          "123456",
 			wantReplyText: "登録しました。これからお手伝いさせてくださいね。",
 		},
 		{
-			name:          "取り消し済み + 6桁数字 + 不正トークン → コードが違う",
-			activeResult:  false,
-			revokedResult: true,
-			findResult:    nil,
-			text:          "999999",
-			wantReplyText: "コードが違うみたいです。もう一度確認して送ってください。",
-		},
-		{
-			name:          "ExistsActive でエラー",
+			name:          "FindActive でエラー",
 			activeErr:     errors.New("db connection failed"),
 			text:          "こんにちは",
 			wantReplyText: "ごめんなさい、ちょっと調子が悪いみたいです。少し待ってからもう一度送ってください。",
@@ -142,17 +231,29 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lineUsers := &fakeLineUserRepository{
-				activeResult:  tt.activeResult,
-				activeErr:     tt.activeErr,
-				revokedResult: tt.revokedResult,
+				findActiveResult: tt.activeUser,
+				findActiveErr:    tt.activeErr,
+				revokedResult:    tt.revokedResult,
 			}
 			registerTokens := &fakeRegisterTokenRepository{
-				findResult: tt.findResult,
+				findResult: tt.findToken,
 			}
+			conversations := &fakeConversationRepository{}
 			line := &fakeLineGateway{}
+			claudeGateway := &fakeClaudeGateway{
+				completeResult: tt.claudeResp,
+				completeErr:    tt.claudeErr,
+			}
 
 			registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, line)
-			uc := usecase.NewRespondToIncomingMessage(lineUsers, line, registerUC)
+			uc := usecase.NewRespondToIncomingMessage(
+				lineUsers,
+				conversations,
+				line,
+				claudeGateway,
+				registerUC,
+				24*time.Hour,
+			)
 
 			err := uc.Execute(context.Background(), lineUserID, replyToken, tt.text)
 
@@ -166,6 +267,12 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 			require.Len(t, line.replies, 1)
 			require.Equal(t, replyToken, line.replies[0].replyToken)
 			require.Equal(t, tt.wantReplyText, line.replies[0].text)
+
+			if tt.wantClaudeCall > 0 {
+				require.Len(t, claudeGateway.completeCalls, tt.wantClaudeCall)
+			}
+			require.Len(t, conversations.createUserCalls, tt.wantUserSave)
+			require.Len(t, conversations.createAsstCalls, tt.wantAsstSave)
 		})
 	}
 }

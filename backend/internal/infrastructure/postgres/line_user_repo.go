@@ -24,21 +24,24 @@ func NewLineUserRepository(db *sqlx.DB) *LineUserRepository {
 	return &LineUserRepository{db: db}
 }
 
-// ExistsActiveByLineUserID は line_user_id が現役（取り消されていない）として登録済みかを返す。
-func (r *LineUserRepository) ExistsActiveByLineUserID(ctx context.Context, lineUserID string) (bool, error) {
-	var exists bool
-	err := r.db.GetContext(ctx, &exists,
-		`SELECT EXISTS(
-            SELECT 1 FROM line_users
-             WHERE line_user_id = $1
-               AND revoked_at IS NULL
-        )`,
+// FindActiveByLineUserID は現役（取り消されていない）の line_user 行を返す。
+// 行が見つからない / 取り消し済みの場合は (nil, nil) を返す。
+func (r *LineUserRepository) FindActiveByLineUserID(ctx context.Context, lineUserID string) (*domain.LineUser, error) {
+	var u domain.LineUser
+	err := r.db.GetContext(ctx, &u,
+		`SELECT id, admin_id, line_user_id, display_name, session_reset_at, revoked_at, created_at
+           FROM line_users
+          WHERE line_user_id = $1
+            AND revoked_at IS NULL`,
 		lineUserID,
 	)
-	if err != nil {
-		return false, err
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
-	return exists, nil
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
 // ExistsRevokedByLineUserID は line_user_id が取り消し済み状態で存在するかを返す。
@@ -80,8 +83,19 @@ func (r *LineUserRepository) Upsert(ctx context.Context, user domain.LineUser) e
 	).Scan(&id)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		// RETURNING が空 → 現役ユーザーで衝突
 		return usecase.ErrLineUserExists
 	}
+	return err
+}
+
+// UpdateSessionResetAt は line_user_id に該当する現役ユーザーの session_reset_at を NOW() に更新する。
+func (r *LineUserRepository) UpdateSessionResetAt(ctx context.Context, lineUserID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE line_users
+            SET session_reset_at = NOW()
+          WHERE line_user_id = $1
+            AND revoked_at IS NULL`,
+		lineUserID,
+	)
 	return err
 }

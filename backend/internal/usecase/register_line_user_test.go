@@ -15,16 +15,18 @@ import (
 // --- fakeLineUserRepository ---
 
 type fakeLineUserRepository struct {
-	activeResult  bool // ExistsActive の結果
-	activeErr     error
-	revokedResult bool // ExistsRevoked の結果
-	revokedErr    error
-	upsertCalls   []domain.LineUser
-	upsertErr     error
+	findActiveResult *domain.LineUser
+	findActiveErr    error
+	revokedResult    bool
+	revokedErr       error
+	upsertCalls      []domain.LineUser
+	upsertErr        error
+	updateResetCalls []string
+	updateResetErr   error
 }
 
-func (f *fakeLineUserRepository) ExistsActiveByLineUserID(_ context.Context, _ string) (bool, error) {
-	return f.activeResult, f.activeErr
+func (f *fakeLineUserRepository) FindActiveByLineUserID(_ context.Context, _ string) (*domain.LineUser, error) {
+	return f.findActiveResult, f.findActiveErr
 }
 
 func (f *fakeLineUserRepository) ExistsRevokedByLineUserID(_ context.Context, _ string) (bool, error) {
@@ -36,6 +38,14 @@ func (f *fakeLineUserRepository) Upsert(_ context.Context, user domain.LineUser)
 		return f.upsertErr
 	}
 	f.upsertCalls = append(f.upsertCalls, user)
+	return nil
+}
+
+func (f *fakeLineUserRepository) UpdateSessionResetAt(_ context.Context, lineUserID string) error {
+	if f.updateResetErr != nil {
+		return f.updateResetErr
+	}
+	f.updateResetCalls = append(f.updateResetCalls, lineUserID)
 	return nil
 }
 
@@ -72,7 +82,6 @@ func TestRegisterLineUserByToken_Execute(t *testing.T) {
 		adminID    = "00000000-0000-0000-0000-000000000001"
 	)
 
-	// 有効な状態のトークン
 	validToken := &domain.RegisterToken{
 		Token:     token,
 		AdminID:   adminID,
@@ -80,7 +89,6 @@ func TestRegisterLineUserByToken_Execute(t *testing.T) {
 		CreatedAt: time.Now().Add(-1 * time.Hour),
 	}
 
-	// 期限切れ状態のトークン
 	expiredToken := &domain.RegisterToken{
 		Token:     token,
 		AdminID:   adminID,
@@ -99,7 +107,7 @@ func TestRegisterLineUserByToken_Execute(t *testing.T) {
 		wantErr           error
 		wantUpsertCalls   int
 		wantMarkUsedCalls int
-		wantDisplayName   *string // upsertCalls[0].DisplayName を検証する場合
+		wantDisplayName   *string
 	}{
 		{
 			name:              "正常系：有効トークン + プロフィール取得成功 → 登録成功",
@@ -140,12 +148,12 @@ func TestRegisterLineUserByToken_Execute(t *testing.T) {
 			wantMarkUsedCalls: 0,
 		},
 		{
-			name:              "Upsert で衝突 (現役ユーザーが既に存在)",
+			name:              "Upsert で衝突 (現役ユーザー)",
 			findResult:        validToken,
 			profileResult:     &usecase.LineProfile{UserID: lineUserID, DisplayName: "田中花子"},
 			upsertErr:         usecase.ErrLineUserExists,
 			wantErr:           usecase.ErrLineUserExists,
-			wantUpsertCalls:   0, // upsertErr が返るので append されない
+			wantUpsertCalls:   0,
 			wantMarkUsedCalls: 0,
 		},
 	}
