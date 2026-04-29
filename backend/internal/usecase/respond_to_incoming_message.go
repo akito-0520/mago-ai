@@ -3,6 +3,10 @@ package usecase
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"time"
+
+	"github.com/akito-0520/mago-ai/backend/internal/domain"
 )
 
 // メッセージ定数（reply で返す文言）
@@ -13,31 +17,49 @@ const (
 	msgTokenExpired          = "このコードは期限が切れています。お孫さんに新しいコードをもらってください。" //nolint:gosec // user-facing message, not a credential
 	msgRevoked               = "登録が解除されています。再度ご利用される場合は、お孫さんに新しいコードをもらってください。"
 	msgInternalError         = "ごめんなさい、ちょっと調子が悪いみたいです。少し待ってからもう一度送ってください。"
+	msgClaudeError           = "うまくお答えできませんでした。少し時間を置いてからもう一度送ってみてください。"
+	msgSessionReset          = "新しい質問をどうぞ。前のお話はいったんおしまいにしますね。"
 	msgRespondingPlaceholder = "メッセージありがとうございます。お返事の機能はまだ準備中です。"
 )
 
+// SessionResetCommand は会話履歴リセット用の特殊コマンド（Rich Menu から送信される）。
+const SessionResetCommand = "#新しい質問"
+
+// 会話履歴の取得上限（直近 N ターン）
+const conversationHistoryLimit = 20
+
 // RespondToIncomingMessage はおばあちゃんから受信したメッセージに応じて適切な返信を返す usecase。
 //
-//   - 現役ユーザー         → Claude / placeholder
-//   - 6 桁数字              → 登録試行（新規 or 取り消し済みの復活）
-//   - 取り消し済み + 通常   → 解除メッセージ
-//   - 未登録 + 通常         → 案内文
+//   - 現役ユーザー + #新しい質問 → session_reset_at 更新 + 案内
+//   - 現役ユーザー + 通常メッセージ → Claude 応答 + 会話履歴保存
+//   - 6 桁数字（未登録 / 取り消し済み）→ 登録試行（新規 or 復活）
+//   - 取り消し済み + 通常メッセージ → 解除メッセージ
+//   - 未登録 + 通常メッセージ → 登録案内
 type RespondToIncomingMessage struct {
-	lineUsers LineUserRepository
-	line      LineGateway
-	register  *RegisterLineUserByToken
+	lineUsers          LineUserRepository
+	conversations      ConversationRepository
+	line               LineGateway
+	claude             ClaudeGateway
+	register           *RegisterLineUserByToken
+	conversationWindow time.Duration
 }
 
 // NewRespondToIncomingMessage は依存を注入して RespondToIncomingMessage を生成する。
 func NewRespondToIncomingMessage(
 	lineUsers LineUserRepository,
+	conversations ConversationRepository,
 	line LineGateway,
+	claude ClaudeGateway,
 	register *RegisterLineUserByToken,
+	conversationWindow time.Duration,
 ) *RespondToIncomingMessage {
 	return &RespondToIncomingMessage{
-		lineUsers: lineUsers,
-		line:      line,
-		register:  register,
+		lineUsers:          lineUsers,
+		conversations:      conversations,
+		line:               line,
+		claude:             claude,
+		register:           register,
+		conversationWindow: conversationWindow,
 	}
 }
 
@@ -49,16 +71,16 @@ func (uc *RespondToIncomingMessage) Execute(
 	text string,
 ) error {
 	// 1. 現役ユーザーかチェック
-	activeExists, err := uc.lineUsers.ExistsActiveByLineUserID(ctx, lineUserID)
+	user, err := uc.lineUsers.FindActiveByLineUserID(ctx, lineUserID)
 	if err != nil {
 		_ = uc.line.Reply(ctx, replyToken, msgInternalError)
 		return err
 	}
-	if activeExists {
-		return uc.line.Reply(ctx, replyToken, msgRespondingPlaceholder)
+	if user != nil {
+		return uc.respondToActive(ctx, user, replyToken, text)
 	}
 
-	// 2. 6 桁数字なら登録試行（UPSERT が新規 or 復活を吸収）
+	// 2. 未登録 / 取り消し済み + 6 桁数字なら登録試行
 	if isSixDigits(text) {
 		return uc.tryRegister(ctx, lineUserID, replyToken, text)
 	}
@@ -75,6 +97,86 @@ func (uc *RespondToIncomingMessage) Execute(
 	return uc.line.Reply(ctx, replyToken, msgRegistrationRequired)
 }
 
+// respondToActive は現役ユーザーに対する応答（session reset または Claude 応答）。
+func (uc *RespondToIncomingMessage) respondToActive(
+	ctx context.Context,
+	user *domain.LineUser,
+	replyToken, text string,
+) error {
+	// #新しい質問 → session_reset_at 更新
+	if text == SessionResetCommand {
+		if err := uc.lineUsers.UpdateSessionResetAt(ctx, user.LineUserID); err != nil {
+			_ = uc.line.Reply(ctx, replyToken, msgInternalError)
+			return err
+		}
+		return uc.line.Reply(ctx, replyToken, msgSessionReset)
+	}
+
+	// Claude 応答
+	return uc.respondWithClaude(ctx, user, replyToken, text)
+}
+
+// respondWithClaude は会話履歴を組み立てて Claude に問い合わせ、結果を返信＆保存する。
+func (uc *RespondToIncomingMessage) respondWithClaude(
+	ctx context.Context,
+	user *domain.LineUser,
+	replyToken, text string,
+) error {
+	// 会話ウィンドウの起点：max(now - window, session_reset_at)
+	cutoff := time.Now().Add(-uc.conversationWindow)
+	if user.SessionResetAt != nil && user.SessionResetAt.After(cutoff) {
+		cutoff = *user.SessionResetAt
+	}
+
+	// 過去ターン取得（新しい順）→ 時系列順に並べ替え
+	history, err := uc.conversations.Recent(ctx, user.ID, cutoff, conversationHistoryLimit)
+	if err != nil {
+		slog.Error("recent conversations failed", "err", err)
+		_ = uc.line.Reply(ctx, replyToken, msgInternalError)
+		return err
+	}
+	reverseConversations(history)
+
+	// user 行を先に保存（Claude 失敗時もユーザーの発言は残す）
+	if err := uc.conversations.CreateUser(ctx, user.ID, text); err != nil {
+		slog.Error("save user message failed", "err", err)
+		_ = uc.line.Reply(ctx, replyToken, msgInternalError)
+		return err
+	}
+
+	// Claude リクエスト構築
+	messages := make([]ClaudeMessage, 0, len(history))
+	for _, c := range history {
+		messages = append(messages, ClaudeMessage{Role: c.Role, Content: c.Content})
+	}
+
+	resp, err := uc.claude.Complete(ctx, ClaudeRequest{
+		SystemPrompt: SystemPrompt,
+		History:      messages,
+		UserMessage:  text,
+	})
+	if err != nil {
+		slog.Error("claude complete failed", "err", err)
+		_ = uc.line.Reply(ctx, replyToken, msgClaudeError)
+		return err
+	}
+
+	// assistant 行を保存（失敗してもユーザーには応答するため、エラーはログのみ）
+	if err := uc.conversations.CreateAssistant(ctx, user.ID, resp.Content, domain.AssistantMeta{
+		LatencyMs:                resp.LatencyMs,
+		Model:                    resp.Model,
+		InputTokens:              resp.InputTokens,
+		OutputTokens:             resp.OutputTokens,
+		CacheReadInputTokens:     resp.CacheReadInputTokens,
+		CacheCreationInputTokens: resp.CacheCreationInputTokens,
+	}); err != nil {
+		slog.Error("save assistant message failed", "err", err)
+		// 続行：ユーザーには Claude の応答を返す
+	}
+
+	return uc.line.Reply(ctx, replyToken, resp.Content)
+}
+
 // tryRegister は登録ユースケースを呼び、結果に応じた返信を行う。
 func (uc *RespondToIncomingMessage) tryRegister(
 	ctx context.Context,
@@ -89,7 +191,7 @@ func (uc *RespondToIncomingMessage) tryRegister(
 	case errors.Is(err, ErrTokenExpired):
 		return uc.line.Reply(ctx, replyToken, msgTokenExpired)
 	case errors.Is(err, ErrLineUserExists):
-		// 安全網（ExistsActive で先に弾いてるので通常起きない）
+		// 安全網（FindActive で先に弾いてるので通常起きない）
 		return uc.line.Reply(ctx, replyToken, msgRespondingPlaceholder)
 	default:
 		_ = uc.line.Reply(ctx, replyToken, msgInternalError)
@@ -108,4 +210,11 @@ func isSixDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+// reverseConversations は新しい順の slice を時系列（古い順）に並べ替える。
+func reverseConversations(s []domain.Conversation) {
+	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
+		s[i], s[j] = s[j], s[i]
+	}
 }

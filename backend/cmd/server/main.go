@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 
 	"github.com/akito-0520/mago-ai/backend/internal/config"
+	"github.com/akito-0520/mago-ai/backend/internal/infrastructure/claude"
 	"github.com/akito-0520/mago-ai/backend/internal/infrastructure/linebot"
 	"github.com/akito-0520/mago-ai/backend/internal/infrastructure/postgres"
 	"github.com/akito-0520/mago-ai/backend/internal/interface/http/handler"
@@ -35,7 +36,6 @@ func main() {
 	e := echo.New()
 
 	// middleware の登録
-	// リクエストをログで出力
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogStatus:  true,
 		LogURI:     true,
@@ -51,36 +51,47 @@ func main() {
 			return nil
 		},
 	}))
-	e.Use(middleware.Recover()) // panicが起きた時に500エラーに変換
+	e.Use(middleware.Recover())
 
+	// DB 接続
 	db, err := postgres.New(cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("postgres connect failed", "err", err)
 		os.Exit(1)
 	}
-	defer func() { // graceful shutdown 時に DB 接続も閉じる
-		err := db.Close()
-		if err != nil {
+	defer func() {
+		if err := db.Close(); err != nil {
 			slog.Error("postgres close failed", "err", err)
 		}
 	}()
 
-	// lineClient の生成
+	// LINE クライアント
 	lineClient, err := linebot.New(cfg.LineChannelAccessToken)
 	if err != nil {
 		slog.Error("linebot setup failed", "err", err)
 		os.Exit(1)
 	}
 
-	// Repository 生成
+	// Claude クライアント
+	claudeClient := claude.New(cfg.AnthropicAPIKey, cfg.ClaudeModel)
+
+	// Repository
 	lineUsers := postgres.NewLineUserRepository(db)
 	registerTokens := postgres.NewRegisterTokenRepository(db)
+	conversations := postgres.NewConversationRepository(db)
 
-	// Usecase 生成
+	// Usecase
 	registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, lineClient)
-	respondUC := usecase.NewRespondToIncomingMessage(lineUsers, lineClient, registerUC)
+	respondUC := usecase.NewRespondToIncomingMessage(
+		lineUsers,
+		conversations,
+		lineClient,
+		claudeClient,
+		registerUC,
+		cfg.ConversationWindow,
+	)
 
-	// webhook ハンドラーのセットアップ
+	// Handler
 	webhookHandler := handler.Webhook(cfg.LineChannelSecret, respondUC)
 
 	// ルートの登録
@@ -95,12 +106,12 @@ func main() {
 		}
 	}()
 
-	// ctrlまたはkillをリッスンする
+	// ctrl または kill をリッスン
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	<-ch
 
-	// contextを作成してGraceful Shutdown を行う
+	// Graceful Shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	slog.Info("shutdown started")
 	defer cancel()

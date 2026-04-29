@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 現在のリポジトリ状態
 
-Phase 1（外部サービス設定）、Phase 2（登録フロー）、フロントの管理画面（ログイン・登録コード発行・登録ユーザー管理）まで完了。Fly.io + Vercel + Supabase に本番デプロイ済み。Claude API 統合、Rich Menu、会話ログ閲覧画面は未実装。
+Phase 1（外部サービス設定）、Phase 2（登録フロー）、Phase 3（Claude API 統合）、フロントの管理画面（ログイン・登録コード発行・登録ユーザー管理）まで完了。Fly.io + Vercel + Supabase に本番デプロイ済み。Rich Menu、会話ログ閲覧画面は未実装。
 
 ```
 mago-ai/
@@ -37,7 +37,7 @@ mago-ai/
 ```
 おばあちゃん ── LINE ──▶ LINE Platform ──▶ Go/Echo (Fly.io 東京、api.mago-ai.akiton.net)
                                               │
-                                              ├─▶ Anthropic Claude API（未実装）
+                                              ├─▶ Anthropic Claude API（プロンプトキャッシュ有効）
                                               └─▶ Supabase Postgres（pgbouncer pooler 経由）
                                                      ▲
 孫 ──── Web ────▶ Vercel (Next.js) ─── Supabase Auth + RLS + RPC
@@ -342,29 +342,32 @@ TDD 原則：**テストを先に書いて失敗させ、実装を通す** ─�
 
 おばあちゃん側の UI 制約：
 
-- **文字の読みやすさ**：LINE メッセージは 600 文字以内を目安、長くなるなら対話型で区切る
-- **返答トーン**：難しい言葉を避ける／手順は 1 ステップずつ／最後に確認の一言
-- **iPhone（iOS）前提**：Android の案内は書かない
+- **文字の読みやすさ**：LINE メッセージは **150 文字くらいを目安、長くても 250 文字以内**。スマホ画面でスクロールせず読める量に抑える
+- **返答トーン**：難しい言葉を避ける／手順は 1〜2 ステップずつ／最後に確認の一言
+- **対象 OS**：iPhone（iOS）前提。Android の説明はしない
 - **iOS バージョン差**：画面が異なる可能性を返答に添える
+- **出力形式**：LINE のトーク表示前提なので、Markdown 装飾やコードブロックは使わず素のテキストで返す
 - **Rich Menu**：1 ボタン（「新しい質問をはじめる」）を LINE チャンネルに登録。押下時は `#新しい質問` が送信される。`#` プレフィックスで通常メッセージと区別
 
-システムプロンプト本文は**未確定**（次の会話で詰める）。
+システムプロンプトの本文は `backend/internal/usecase/system_prompt.go` に定義済み（プロンプトキャッシュ対象）。チューニングはコード上で直接行う。
 
 ## 保留中の決定事項
 
 以下は次の実装フェーズで詰める：
 
-- **システムプロンプト本文**（ペルソナの距離感、雑談許容範囲、長さガイド等）
 - **Rich Menu の画像デザインと LINE チャンネルへの登録手順**
 - **会話ログ閲覧画面**（`/conversations`、TanStack Table 等）
 - **レート制限**（インメモリカウンタ、必要になったら）
 - **エラーログ検証テスト**（slog 出力をキャプチャしてアサート、必要になったら）
+- **システムプロンプトのチューニング**：実運用の応答を見ながら `usecase/system_prompt.go` を調整
 
 完了済み：
 
 - ~~`main.go` の DI ワイヤリング~~ → 完了
 - ~~sqlx の connection pool 設定~~ → `postgres.New` で `SetMaxOpenConns(20)` / `SetMaxIdleConns(5)` 等を設定済み
 - ~~LINE webhook 署名検証~~ → SDK の `webhook.ParseRequest` を使用、handler 内で完結
+- ~~システムプロンプト本文~~ → `usecase/system_prompt.go` に初版を定義（150 文字目安、上限 250 文字）
+- ~~Phase 3：Claude API 統合~~ → ClaudeGateway / ConversationRepository / プロンプトキャッシュ実装済み
 
 ## 開発方針
 
