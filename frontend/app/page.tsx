@@ -20,7 +20,7 @@ export default async function Home() {
       <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 sm:py-5">
         <Link href="/" className="flex items-center gap-2">
           <Image
-            src="/app_icon.png"
+            src="/img/app_icon.png"
             alt="mago.ai"
             width={36}
             height={36}
@@ -73,7 +73,7 @@ export default async function Home() {
             <div className="relative mx-auto w-full max-w-xs rounded-[2rem] border bg-white p-4 shadow-xl sm:max-w-sm sm:p-5">
               <div className="flex items-center gap-2 border-b pb-3">
                 <Image
-                  src="/app_icon.png"
+                  src="/img/app_icon.png"
                   alt="mago.ai Bot"
                   width={32}
                   height={32}

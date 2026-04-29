@@ -29,7 +29,7 @@ export function HeaderNav({ email }: { email: string | null | undefined }) {
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6">
         <Link href="/line-users" className="flex items-center gap-2">
           <Image
-            src="/app_icon.png"
+            src="/img/app_icon.png"
             alt="mago.ai"
             width={32}
             height={32}

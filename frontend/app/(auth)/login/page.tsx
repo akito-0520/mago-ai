@@ -27,7 +27,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <Image
-            src="/app_icon.png"
+            src="/img/app_icon.png"
             alt="mago.ai"
             width={80}
             height={80}
