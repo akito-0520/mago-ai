@@ -50,6 +50,9 @@ type AdminLinkTokenRepository interface {
 type LineUserRepository interface {
 	FindActiveByLineUserID(ctx context.Context, lineUserID string) (*domain.LineUser, error)
 	ExistsRevokedByLineUserID(ctx context.Context, lineUserID string) (bool, error)
+	// CountActiveByAdminID は admin に紐付く現役（取り消されていない）ユーザー数を返す。
+	// プラン上限チェック用。
+	CountActiveByAdminID(ctx context.Context, adminID string) (int, error)
 	Upsert(ctx context.Context, user domain.LineUser) error
 	UpdateSessionResetAt(ctx context.Context, lineUserID string) error
 }

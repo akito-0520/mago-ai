@@ -96,7 +96,7 @@ func main() {
 	quotaService := usecase.NewQuotaService(plans, limiter)
 
 	// Usecase
-	registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, lineClient)
+	registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, plans, lineClient)
 	respondUC := usecase.NewRespondToIncomingMessage(
 		lineUsers,
 		conversations,

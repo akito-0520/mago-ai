@@ -22,6 +22,7 @@ const (
 	msgSessionReset          = "新しい質問をどうぞ。前のお話はいったんおしまいにしますね。"
 	msgUnresolved            = "ごめんなさい、お役に立てませんでした。お孫さんに「まごAI でうまく解決しなかった」とお伝えください。直接LINEやお電話などでサポートしてもらえると思います。"
 	msgRespondingPlaceholder = "メッセージありがとうございます。お返事の機能はまだ準備中です。"
+	msgPlanCapacityFull      = "ごめんなさい、登録できませんでした。お孫さんに「まごAI の登録枠がいっぱいです」とお伝えください。"
 )
 
 // SessionResetCommand は会話履歴リセット用の特殊コマンド（Rich Menu から送信される）。
@@ -285,6 +286,8 @@ func (uc *RespondToIncomingMessage) tryRegister(
 		return uc.line.Reply(ctx, replyToken, msgTokenNotFound)
 	case errors.Is(err, ErrTokenExpired):
 		return uc.line.Reply(ctx, replyToken, msgTokenExpired)
+	case errors.Is(err, ErrPlanMaxLineUsersReached):
+		return uc.line.Reply(ctx, replyToken, msgPlanCapacityFull)
 	case errors.Is(err, ErrLineUserExists):
 		// 安全網（FindActive で先に弾いてるので通常起きない）
 		return uc.line.Reply(ctx, replyToken, msgRespondingPlaceholder)

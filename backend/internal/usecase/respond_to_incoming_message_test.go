@@ -233,6 +233,7 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 		claudeErr      error
 		quotaAllowed   bool // QuotaService.Allow の戻り値（デフォルト false なので明示）
 		quotaErr       error
+		countActiveRes int // CountActiveByAdminID の戻り値（プラン上限テスト用）
 		text           string
 		wantReplyText  string
 		wantClaudeCall int
@@ -336,6 +337,15 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 			wantReplyText: "登録しました。これからお手伝いさせてくださいね。",
 		},
 		{
+			name:           "未登録 + 6桁数字 + プラン枠満杯 → 登録枠案内",
+			activeUser:     nil,
+			revokedResult:  false,
+			findToken:      validToken,
+			text:           "123456",
+			countActiveRes: 1, // freeTestPlan.MaxLineUsers と同じ → 上限到達
+			wantReplyText:  "ごめんなさい、登録できませんでした。お孫さんに「まごAI の登録枠がいっぱいです」とお伝えください。",
+		},
+		{
 			name:          "FindActive でエラー",
 			activeErr:     errors.New("db connection failed"),
 			text:          "こんにちは",
@@ -347,9 +357,10 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lineUsers := &fakeLineUserRepository{
-				findActiveResult: tt.activeUser,
-				findActiveErr:    tt.activeErr,
-				revokedResult:    tt.revokedResult,
+				findActiveResult:  tt.activeUser,
+				findActiveErr:     tt.activeErr,
+				revokedResult:     tt.revokedResult,
+				countActiveResult: tt.countActiveRes,
 			}
 			registerTokens := &fakeRegisterTokenRepository{
 				findResult: tt.findToken,
@@ -367,8 +378,9 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 				plan:    testFreePlan,
 				err:     tt.quotaErr,
 			}
+			plans := &fakePlanRepository{plan: &testFreePlan}
 
-			registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, line)
+			registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, plans, line)
 			uc := usecase.NewRespondToIncomingMessage(
 				lineUsers,
 				conversations,
