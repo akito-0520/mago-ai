@@ -15,17 +15,17 @@ import (
 // --- fakeLineUserRepository ---
 
 type fakeLineUserRepository struct {
-	findActiveResult   *domain.LineUser
-	findActiveErr      error
-	revokedResult      bool
-	revokedErr         error
-	countActiveResult  int
-	countActiveErr     error
-	countActiveCalls   []string
-	upsertCalls        []domain.LineUser
-	upsertErr          error
-	updateResetCalls   []string
-	updateResetErr     error
+	findActiveResult  *domain.LineUser
+	findActiveErr     error
+	revokedResult     bool
+	revokedErr        error
+	countActiveResult int
+	countActiveErr    error
+	countActiveCalls  []string
+	upsertCalls       []domain.LineUser
+	upsertErr         error
+	updateResetCalls  []string
+	updateResetErr    error
 }
 
 func (f *fakeLineUserRepository) FindActiveByLineUserID(_ context.Context, _ string) (*domain.LineUser, error) {
