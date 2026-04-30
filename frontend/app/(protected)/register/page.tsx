@@ -4,9 +4,7 @@ import { RegisterClient, type PlanStatus } from "./client";
 export default async function RegisterPage() {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .rpc("get_my_plan_status")
-    .single<PlanStatus>();
+  const { data, error } = await supabase.rpc("get_my_plan_status").single<PlanStatus>();
 
   if (error) {
     return (

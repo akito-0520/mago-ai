@@ -5,13 +5,7 @@ import { Check, Copy, Sparkles, Ticket, Users } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export type PlanStatus = {
   plan_code: string;
@@ -22,11 +16,7 @@ export type PlanStatus = {
   used_line_users: number;
 };
 
-export function RegisterClient({
-  initialStatus,
-}: {
-  initialStatus: PlanStatus;
-}) {
+export function RegisterClient({ initialStatus }: { initialStatus: PlanStatus }) {
   const [status, setStatus] = useState<PlanStatus>(initialStatus);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -116,7 +106,8 @@ export function RegisterClient({
                 </span>
               </CardTitle>
               <CardDescription>
-                1 時間あたり {status.hourly_limit} 回 / 1 日あたり {status.daily_limit} 回まで Bot に質問できます。
+                1 時間あたり {status.hourly_limit} 回 / 1 日あたり {status.daily_limit} 回まで Bot
+                に質問できます。
               </CardDescription>
             </div>
           </div>
