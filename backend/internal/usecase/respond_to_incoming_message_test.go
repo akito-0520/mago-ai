@@ -234,7 +234,7 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 			name:          "現役ユーザー + #解決しなかった → フィードバック保存",
 			activeUser:    activeUser,
 			text:          "#解決しなかった",
-			wantReplyText: "ごめんなさい、お役に立てませんでした。お孫さんに「mago.ai でうまく解決しなかった」とお伝えください。直接お電話などでサポートしてもらえると思います。",
+			wantReplyText: "ごめんなさい、お役に立てませんでした。お孫さんに「まごAI でうまく解決しなかった」とお伝えください。直接お電話などでサポートしてもらえると思います。",
 			wantUserSave:  1,
 			wantAsstSave:  1,
 		},
