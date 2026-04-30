@@ -41,6 +41,19 @@ export function NotifySettingsClient({ initialLinks }: { initialLinks: AdminLine
   const [busyId, setBusyId] = useState<string | null>(null);
   const [unlinkTarget, setUnlinkTarget] = useState<AdminLineLink | null>(null);
   const [copied, setCopied] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
+
+  const handleCopyUrl = async () => {
+    if (!notifyFriendUrl) return;
+    try {
+      await navigator.clipboard.writeText(notifyFriendUrl);
+      setUrlCopied(true);
+      toast.success("URL をコピーしました");
+      setTimeout(() => setUrlCopied(false), 2000);
+    } catch {
+      toast.error("コピーに失敗しました");
+    }
+  };
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -123,16 +136,16 @@ export function NotifySettingsClient({ initialLinks }: { initialLinks: AdminLine
               1
             </span>
             <div>
-              <p>
-                通知用 LINE 公式アカウントを <b>友だち追加</b> します。
-              </p>
-              {notifyFriendUrl && (
-                <div className="mt-2 flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <p>
+                  通知用 LINE 公式アカウントを <b>友だち追加</b> します。
+                </p>
+                {notifyFriendUrl && (
                   <Dialog>
                     <DialogTrigger asChild>
                       <Button variant="outline" size="sm">
                         <QrCode />
-                        QR を表示
+                        友だち追加
                       </Button>
                     </DialogTrigger>
                     <DialogContent>
@@ -142,28 +155,40 @@ export function NotifySettingsClient({ initialLinks }: { initialLinks: AdminLine
                           スマホのカメラまたは LINE で読み取って友だち追加してください。
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="flex flex-col items-center gap-3">
-                        <Image
-                          src="/img/mago-ai_notify_qr.png"
-                          alt="通知 LINE 公式アカウントの QR"
-                          width={240}
-                          height={240}
-                          className="size-60 rounded-xl border bg-white p-3"
-                        />
-                        <code className="w-full truncate rounded-lg border bg-muted/50 px-3 py-2 font-mono text-xs">
-                          {notifyFriendUrl}
-                        </code>
+                      <div className="flex flex-col items-center gap-4">
+                        <div className="rounded-xl border bg-white p-3">
+                          <Image
+                            src="/img/mago-ai-prod-admin.png"
+                            alt="通知 LINE 公式アカウントの友だち追加 QR"
+                            width={240}
+                            height={240}
+                            className="size-60"
+                          />
+                        </div>
+                        <div className="flex w-full items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2">
+                          <code className="flex-1 truncate font-mono text-xs">
+                            {notifyFriendUrl}
+                          </code>
+                          <Button
+                            onClick={() => void handleCopyUrl()}
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0"
+                          >
+                            {urlCopied ? <Check /> : <Copy />}
+                          </Button>
+                        </div>
+                        <Button asChild variant="outline" size="sm" className="w-full">
+                          <a href={notifyFriendUrl} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink />
+                            LINE で開く
+                          </a>
+                        </Button>
                       </div>
                     </DialogContent>
                   </Dialog>
-                  <Button asChild variant="outline" size="sm">
-                    <a href={notifyFriendUrl} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink />
-                      LINE で開く
-                    </a>
-                  </Button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </li>
           <li className="flex gap-3">
