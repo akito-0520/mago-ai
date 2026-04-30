@@ -11,15 +11,17 @@ import (
 
 // Config holds runtime configuration values loaded from the environment.
 type Config struct {
-	Port                   string
-	DatabaseURL            string
-	SupabaseURL            string
-	SupabaseServiceRoleKey string
-	AnthropicAPIKey        string
-	ClaudeModel            string
-	LineChannelSecret      string
-	LineChannelAccessToken string
-	ConversationWindow     time.Duration
+	Port                         string
+	DatabaseURL                  string
+	SupabaseURL                  string
+	SupabaseServiceRoleKey       string
+	AnthropicAPIKey              string
+	ClaudeModel                  string
+	LineChannelSecret            string
+	LineChannelAccessToken       string
+	LineNotifyChannelSecret      string // 通知用 LINE 公式アカウントの Channel Secret
+	LineNotifyChannelAccessToken string // 通知用 LINE 公式アカウントの Channel Access Token
+	ConversationWindow           time.Duration
 }
 
 const (
@@ -34,14 +36,16 @@ const (
 // problem so all can be fixed at once.
 func Load() (*Config, error) {
 	c := &Config{
-		Port:                   getEnvOrDefault("PORT", defaultPort),
-		DatabaseURL:            os.Getenv("DATABASE_URL"),
-		SupabaseURL:            os.Getenv("SUPABASE_URL"),
-		SupabaseServiceRoleKey: os.Getenv("SUPABASE_SERVICE_ROLE_KEY"),
-		AnthropicAPIKey:        os.Getenv("ANTHROPIC_API_KEY"),
-		ClaudeModel:            getEnvOrDefault("CLAUDE_MODEL", defaultClaudeModel),
-		LineChannelSecret:      os.Getenv("LINE_CHANNEL_SECRET"),
-		LineChannelAccessToken: os.Getenv("LINE_CHANNEL_ACCESS_TOKEN"),
+		Port:                         getEnvOrDefault("PORT", defaultPort),
+		DatabaseURL:                  os.Getenv("DATABASE_URL"),
+		SupabaseURL:                  os.Getenv("SUPABASE_URL"),
+		SupabaseServiceRoleKey:       os.Getenv("SUPABASE_SERVICE_ROLE_KEY"),
+		AnthropicAPIKey:              os.Getenv("ANTHROPIC_API_KEY"),
+		ClaudeModel:                  getEnvOrDefault("CLAUDE_MODEL", defaultClaudeModel),
+		LineChannelSecret:            os.Getenv("LINE_CHANNEL_SECRET"),
+		LineChannelAccessToken:       os.Getenv("LINE_CHANNEL_ACCESS_TOKEN"),
+		LineNotifyChannelSecret:      os.Getenv("LINE_NOTIFY_CHANNEL_SECRET"),
+		LineNotifyChannelAccessToken: os.Getenv("LINE_NOTIFY_CHANNEL_ACCESS_TOKEN"),
 	}
 
 	var problems []string
@@ -56,6 +60,8 @@ func Load() (*Config, error) {
 		{"ANTHROPIC_API_KEY", c.AnthropicAPIKey},
 		{"LINE_CHANNEL_SECRET", c.LineChannelSecret},
 		{"LINE_CHANNEL_ACCESS_TOKEN", c.LineChannelAccessToken},
+		{"LINE_NOTIFY_CHANNEL_SECRET", c.LineNotifyChannelSecret},
+		{"LINE_NOTIFY_CHANNEL_ACCESS_TOKEN", c.LineNotifyChannelAccessToken},
 	}
 	for _, r := range required {
 		if r.val == "" {

@@ -18,9 +18,14 @@ CLAUDE_MODEL      = "claude-sonnet-4-6"
 # 会話履歴の自動リセットまでの時間（時間単位の整数）
 CONVERSATION_WINDOW_HOURS = "24"
 
-# --- LINE Messaging API（dev チャネル） ---
+# --- LINE Messaging API（おばあちゃん用 dev チャネル） ---
 LINE_CHANNEL_SECRET        = ""
 LINE_CHANNEL_ACCESS_TOKEN  = ""
+
+# --- LINE Messaging API（孫への通知用 dev チャネル） ---
+# おばあちゃんからの「解決しなかった」フィードバックを孫に Push する用の別チャネル
+LINE_NOTIFY_CHANNEL_SECRET        = ""
+LINE_NOTIFY_CHANNEL_ACCESS_TOKEN  = ""
 
 # --- Google OAuth（ローカル Supabase 用） ---
 # Google Cloud Console → Credentials → OAuth 2.0 Client IDs で作成した値

@@ -8,5 +8,8 @@ NEXT_PUBLIC_SUPABASE_URL       = "http://127.0.0.1:54321"
 NEXT_PUBLIC_SUPABASE_ANON_KEY  = ""
 NEXT_PUBLIC_SITE_URL           = "http://localhost:3000"
 
-# LINE 公式アカウントの友だち追加 URL（例: https://lin.ee/xxxxxxx）
-NEXT_PUBLIC_LINE_FRIEND_URL    = ""
+# おばあちゃん用 LINE 公式アカウントの友だち追加 URL（例: https://lin.ee/xxxxxxx）
+NEXT_PUBLIC_LINE_FRIEND_URL         = ""
+
+# 孫への通知用 LINE 公式アカウントの友だち追加 URL（別チャネル）
+NEXT_PUBLIC_LINE_NOTIFY_FRIEND_URL  = ""

@@ -27,7 +27,7 @@ func Webhook(
 
 		cb, err := webhook.ParseRequest(channelSecret, c.Request())
 		if err != nil {
-			slog.Warn("webhook parse failed", "err", err)
+			slog.Warn("user webhook parse failed", "err", err)
 			return echo.NewHTTPError(http.StatusUnauthorized, "invalid signature")
 		}
 
@@ -48,11 +48,11 @@ func handleEvent(
 	case webhook.MessageEvent:
 		handleMessageEvent(ctx, e, respond)
 	case webhook.FollowEvent:
-		slog.Info("friend added")
+		slog.Info("user: friend added")
 	case webhook.UnfollowEvent:
-		slog.Info("unfollowed")
+		slog.Info("user: unfollowed")
 	default:
-		slog.Warn("unknown event type", "type", fmt.Sprintf("%T", event))
+		slog.Warn("user: unknown event type", "type", fmt.Sprintf("%T", event))
 	}
 }
 
@@ -65,35 +65,35 @@ func handleMessageEvent(
 	case webhook.TextMessageContent:
 		senderID := getSenderUserID(e)
 		if senderID == "" {
-			slog.Warn("sender user id missing")
+			slog.Warn("user: sender user id missing")
 			return
 		}
 
 		// メッセージのレスポンスを組み立てる
 		err := respond.Execute(ctx, senderID, e.ReplyToken, msg.Text)
 		if err != nil {
-			slog.Error("reply failed", "err", err)
+			slog.Error("user: reply failed", "err", err)
 			return
 		}
-		slog.Info("replied", "text", msg.Text)
+		slog.Info("user: replied", "text", msg.Text)
 
 	case webhook.StickerMessageContent:
 		senderID := getSenderUserID(e)
 		if senderID == "" {
-			slog.Warn("sender user id missing")
+			slog.Warn("user: sender user id missing")
 			return
 		}
 
 		// メッセージのレスポンスを組み立てる
 		err := respond.Execute(ctx, senderID, e.ReplyToken, "こんにちは。私に聞きたいことを文字で送ってもらえますか？")
 		if err != nil {
-			slog.Error("reply failed", "err", err)
+			slog.Error("user: reply failed", "err", err)
 			return
 		}
-		slog.Info("sticker message received")
+		slog.Info("user: sticker message received")
 
 	default:
-		slog.Warn("unknown message type", "type", fmt.Sprintf("%T", msg))
+		slog.Warn("user: unknown message type", "type", fmt.Sprintf("%T", msg))
 	}
 }
 

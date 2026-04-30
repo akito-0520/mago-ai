@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Bell,
   Check,
   Copy,
   ExternalLink,
@@ -31,6 +32,7 @@ const items = [
   { href: "/line-users", label: "登録ユーザー", icon: Users },
   { href: "/conversations", label: "会話ログ", icon: MessageSquare },
   { href: "/register", label: "登録コード発行", icon: Ticket },
+  { href: "/notify-settings", label: "通知設定", icon: Bell },
 ];
 
 const lineFriendUrl = process.env.NEXT_PUBLIC_LINE_FRIEND_URL ?? "";

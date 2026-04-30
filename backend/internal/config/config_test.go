@@ -12,12 +12,14 @@ import (
 
 func TestLoad(t *testing.T) {
 	requiredEnvs := map[string]string{
-		"DATABASE_URL":              "postgres://u:p@127.0.0.1:5432/db",
-		"SUPABASE_URL":              "http://127.0.0.1:54321",
-		"SUPABASE_SERVICE_ROLE_KEY": "service-role-key",
-		"ANTHROPIC_API_KEY":         "sk-ant-xxx",
-		"LINE_CHANNEL_SECRET":       "line-secret",
-		"LINE_CHANNEL_ACCESS_TOKEN": "line-token",
+		"DATABASE_URL":                     "postgres://u:p@127.0.0.1:5432/db",
+		"SUPABASE_URL":                     "http://127.0.0.1:54321",
+		"SUPABASE_SERVICE_ROLE_KEY":        "service-role-key",
+		"ANTHROPIC_API_KEY":                "sk-ant-xxx",
+		"LINE_CHANNEL_SECRET":              "line-secret",
+		"LINE_CHANNEL_ACCESS_TOKEN":        "line-token",
+		"LINE_NOTIFY_CHANNEL_SECRET":       "line-notify-secret",
+		"LINE_NOTIFY_CHANNEL_ACCESS_TOKEN": "line-notify-token",
 	}
 
 	tests := []struct {
@@ -43,6 +45,8 @@ func TestLoad(t *testing.T) {
 				require.Equal(t, "claude-opus-4-7", c.ClaudeModel)
 				require.Equal(t, "line-secret", c.LineChannelSecret)
 				require.Equal(t, "line-token", c.LineChannelAccessToken)
+				require.Equal(t, "line-notify-secret", c.LineNotifyChannelSecret)
+				require.Equal(t, "line-notify-token", c.LineNotifyChannelAccessToken)
 				require.Equal(t, 12*time.Hour, c.ConversationWindow)
 			},
 		},
@@ -101,7 +105,7 @@ func TestLoad(t *testing.T) {
 			name:     "全部未設定なら全ての必須キーがエラーに含まれる",
 			envs:     map[string]string{},
 			wantErr:  true,
-			errMatch: []string{"DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "ANTHROPIC_API_KEY", "LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN"},
+			errMatch: []string{"DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "ANTHROPIC_API_KEY", "LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN", "LINE_NOTIFY_CHANNEL_SECRET", "LINE_NOTIFY_CHANNEL_ACCESS_TOKEN"},
 		},
 		{
 			name:     "必須 env が空文字のみの場合も未設定扱いでエラー",
@@ -150,6 +154,8 @@ func clearEnvs(t *testing.T) {
 		"CLAUDE_MODEL",
 		"LINE_CHANNEL_SECRET",
 		"LINE_CHANNEL_ACCESS_TOKEN",
+		"LINE_NOTIFY_CHANNEL_SECRET",
+		"LINE_NOTIFY_CHANNEL_ACCESS_TOKEN",
 		"CONVERSATION_WINDOW_HOURS",
 	}
 	for _, k := range keys {
