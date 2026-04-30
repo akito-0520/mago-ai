@@ -61,6 +61,22 @@ func (r *LineUserRepository) ExistsRevokedByLineUserID(ctx context.Context, line
 	return exists, nil
 }
 
+// CountActiveByAdminID は admin に紐付く現役ユーザー数を返す。
+func (r *LineUserRepository) CountActiveByAdminID(ctx context.Context, adminID string) (int, error) {
+	var count int
+	err := r.db.GetContext(ctx, &count,
+		`SELECT COUNT(*)::int
+		   FROM line_users
+		  WHERE admin_id   = $1
+		    AND revoked_at IS NULL`,
+		adminID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // Upsert は line_users への INSERT、または取り消し済みユーザーの復活を行う。
 //
 // 動作:

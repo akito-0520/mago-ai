@@ -18,6 +18,7 @@ import (
 	"github.com/akito-0520/mago-ai/backend/internal/infrastructure/linebot"
 	"github.com/akito-0520/mago-ai/backend/internal/infrastructure/postgres"
 	"github.com/akito-0520/mago-ai/backend/internal/interface/http/handler"
+	"github.com/akito-0520/mago-ai/backend/internal/ratelimit"
 	"github.com/akito-0520/mago-ai/backend/internal/usecase"
 )
 
@@ -88,9 +89,14 @@ func main() {
 	conversations := postgres.NewConversationRepository(db)
 	adminLinks := postgres.NewAdminLineLinkRepository(db)
 	adminLinkTokens := postgres.NewAdminLinkTokenRepository(db)
+	plans := postgres.NewPlanRepository(db)
+
+	// レート制限：プロセス全体で 1 つの Limiter を共有（adminID 単位でカウント）
+	limiter := ratelimit.New()
+	quotaService := usecase.NewQuotaService(plans, limiter)
 
 	// Usecase
-	registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, lineClient)
+	registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, plans, lineClient)
 	respondUC := usecase.NewRespondToIncomingMessage(
 		lineUsers,
 		conversations,
@@ -98,6 +104,7 @@ func main() {
 		lineClient,
 		claudeClient,
 		notifierClient,
+		quotaService,
 		registerUC,
 		cfg.ConversationWindow,
 	)

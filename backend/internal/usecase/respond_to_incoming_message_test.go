@@ -171,6 +171,30 @@ func (f *fakeClaudeGateway) Complete(_ context.Context, req usecase.ClaudeReques
 	return f.completeResult, nil
 }
 
+// --- fakeQuotaService ---
+
+type fakeQuotaService struct {
+	allowed bool
+	plan    domain.Plan
+	err     error
+
+	calls []string // 呼ばれた adminID の履歴
+}
+
+func (f *fakeQuotaService) Allow(_ context.Context, adminID string, _ time.Time) (*usecase.QuotaResult, error) {
+	f.calls = append(f.calls, adminID)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &usecase.QuotaResult{Allowed: f.allowed, Plan: f.plan}, nil
+}
+
+// テスト用の fixed plan
+var testFreePlan = domain.Plan{
+	Code: "free", DisplayName: "無料",
+	MaxLineUsers: 1, HourlyLimit: 5, DailyLimit: 30,
+}
+
 func TestRespondToIncomingMessage_Execute(t *testing.T) {
 	const (
 		lineUserID = "U1234567890abcdef"
@@ -207,22 +231,39 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 		findToken      *domain.RegisterToken
 		claudeResp     *usecase.ClaudeResponse
 		claudeErr      error
+		quotaAllowed   bool // QuotaService.Allow の戻り値（デフォルト false なので明示）
+		quotaErr       error
+		countActiveRes int // CountActiveByAdminID の戻り値（プラン上限テスト用）
 		text           string
 		wantReplyText  string
 		wantClaudeCall int
 		wantUserSave   int
 		wantAsstSave   int
+		wantQuotaCall  int // QuotaService.Allow が呼ばれた回数
 		wantErrSubstr  string
 	}{
 		{
 			name:           "現役ユーザー + 通常メッセージ → Claude 応答",
 			activeUser:     activeUser,
+			quotaAllowed:   true,
 			text:           "iPhoneで写真を送りたい",
 			claudeResp:     &usecase.ClaudeResponse{Content: "「写真」アプリを開いてください。", Model: "claude-sonnet-4-6"},
 			wantReplyText:  "「写真」アプリを開いてください。",
 			wantClaudeCall: 1,
 			wantUserSave:   1,
 			wantAsstSave:   1,
+			wantQuotaCall:  1,
+		},
+		{
+			name:           "現役ユーザー + 通常メッセージ + Quota 拒否 → 制限案内（Claude 呼ばない）",
+			activeUser:     activeUser,
+			quotaAllowed:   false,
+			text:           "iPhoneで写真を送りたい",
+			wantReplyText:  "たくさん使ってくれてありがとうございます。少し時間をおいてから、またお話しましょう。\n（無料プランは 1 時間 5 回 / 1 日 30 回までです）",
+			wantClaudeCall: 0,
+			wantUserSave:   0,
+			wantAsstSave:   0,
+			wantQuotaCall:  1,
 		},
 		{
 			name:          "現役ユーザー + #新しい質問 → セッションリセット",
@@ -241,12 +282,14 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 		{
 			name:           "Claude 失敗 → エラーメッセージ + assistant 行は保存しない",
 			activeUser:     activeUser,
+			quotaAllowed:   true,
 			text:           "助けて",
 			claudeErr:      errors.New("rate limit exceeded"),
 			wantReplyText:  "うまくお答えできませんでした。少し時間を置いてからもう一度送ってみてください。",
 			wantClaudeCall: 1,
 			wantUserSave:   1,
 			wantAsstSave:   0,
+			wantQuotaCall:  1,
 			wantErrSubstr:  "rate limit",
 		},
 		{
@@ -294,6 +337,15 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 			wantReplyText: "登録しました。これからお手伝いさせてくださいね。",
 		},
 		{
+			name:           "未登録 + 6桁数字 + プラン枠満杯 → 登録枠案内",
+			activeUser:     nil,
+			revokedResult:  false,
+			findToken:      validToken,
+			text:           "123456",
+			countActiveRes: 1, // freeTestPlan.MaxLineUsers と同じ → 上限到達
+			wantReplyText:  "ごめんなさい、登録できませんでした。お孫さんに「まごAI の登録枠がいっぱいです」とお伝えください。",
+		},
+		{
 			name:          "FindActive でエラー",
 			activeErr:     errors.New("db connection failed"),
 			text:          "こんにちは",
@@ -305,9 +357,10 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lineUsers := &fakeLineUserRepository{
-				findActiveResult: tt.activeUser,
-				findActiveErr:    tt.activeErr,
-				revokedResult:    tt.revokedResult,
+				findActiveResult:  tt.activeUser,
+				findActiveErr:     tt.activeErr,
+				revokedResult:     tt.revokedResult,
+				countActiveResult: tt.countActiveRes,
 			}
 			registerTokens := &fakeRegisterTokenRepository{
 				findResult: tt.findToken,
@@ -320,8 +373,14 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 				completeErr:    tt.claudeErr,
 			}
 			notifier := &fakeAdminNotifier{}
+			quota := &fakeQuotaService{
+				allowed: tt.quotaAllowed,
+				plan:    testFreePlan,
+				err:     tt.quotaErr,
+			}
+			plans := &fakePlanRepository{plan: &testFreePlan}
 
-			registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, line)
+			registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, plans, line)
 			uc := usecase.NewRespondToIncomingMessage(
 				lineUsers,
 				conversations,
@@ -329,6 +388,7 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 				line,
 				claudeGateway,
 				notifier,
+				quota,
 				registerUC,
 				24*time.Hour,
 			)
@@ -346,11 +406,10 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 			require.Equal(t, replyToken, line.replies[0].replyToken)
 			require.Equal(t, tt.wantReplyText, line.replies[0].text)
 
-			if tt.wantClaudeCall > 0 {
-				require.Len(t, claudeGateway.completeCalls, tt.wantClaudeCall)
-			}
+			require.Len(t, claudeGateway.completeCalls, tt.wantClaudeCall)
 			require.Len(t, conversations.createUserCalls, tt.wantUserSave)
 			require.Len(t, conversations.createAsstCalls, tt.wantAsstSave)
+			require.Len(t, quota.calls, tt.wantQuotaCall)
 		})
 	}
 }

@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -21,6 +22,7 @@ const (
 	msgSessionReset          = "新しい質問をどうぞ。前のお話はいったんおしまいにしますね。"
 	msgUnresolved            = "ごめんなさい、お役に立てませんでした。お孫さんに「まごAI でうまく解決しなかった」とお伝えください。直接LINEやお電話などでサポートしてもらえると思います。"
 	msgRespondingPlaceholder = "メッセージありがとうございます。お返事の機能はまだ準備中です。"
+	msgPlanCapacityFull      = "ごめんなさい、登録できませんでした。お孫さんに「まごAI の登録枠がいっぱいです」とお伝えください。"
 )
 
 // SessionResetCommand は会話履歴リセット用の特殊コマンド（Rich Menu から送信される）。
@@ -47,6 +49,7 @@ type RespondToIncomingMessage struct {
 	line               LineGateway
 	claude             ClaudeGateway
 	notifier           AdminNotifier
+	quota              QuotaService
 	register           *RegisterLineUserByToken
 	conversationWindow time.Duration
 }
@@ -59,6 +62,7 @@ func NewRespondToIncomingMessage(
 	line LineGateway,
 	claude ClaudeGateway,
 	notifier AdminNotifier,
+	quota QuotaService,
 	register *RegisterLineUserByToken,
 	conversationWindow time.Duration,
 ) *RespondToIncomingMessage {
@@ -69,6 +73,7 @@ func NewRespondToIncomingMessage(
 		line:               line,
 		claude:             claude,
 		notifier:           notifier,
+		quota:              quota,
 		register:           register,
 		conversationWindow: conversationWindow,
 	}
@@ -195,8 +200,26 @@ func (uc *RespondToIncomingMessage) respondWithClaude(
 	user *domain.LineUser,
 	replyToken, text string,
 ) error {
+	// レート制限チェック（admin 単位、プラン依存）。
+	// QuotaService エラー時は fail open（ログのみ）：
+	// インフラ問題でユーザーをブロックしない。Claude 自体に API レートリミットがあるので
+	// 仮に流量が漏れても上限暴走には至らない。
+	now := time.Now()
+	quotaResult, qerr := uc.quota.Allow(ctx, user.AdminID, now)
+	if qerr != nil {
+		slog.Warn("quota check failed (fail open)", "err", qerr, "adminID", user.AdminID)
+	} else if !quotaResult.Allowed {
+		slog.Info("quota exceeded",
+			"adminID", user.AdminID,
+			"plan", quotaResult.Plan.Code,
+			"hourly", quotaResult.Plan.HourlyLimit,
+			"daily", quotaResult.Plan.DailyLimit,
+		)
+		return uc.line.Reply(ctx, replyToken, quotaExceededMessage(quotaResult.Plan))
+	}
+
 	// 会話ウィンドウの起点：max(now - window, session_reset_at)
-	cutoff := time.Now().Add(-uc.conversationWindow)
+	cutoff := now.Add(-uc.conversationWindow)
 	if user.SessionResetAt != nil && user.SessionResetAt.After(cutoff) {
 		cutoff = *user.SessionResetAt
 	}
@@ -263,6 +286,8 @@ func (uc *RespondToIncomingMessage) tryRegister(
 		return uc.line.Reply(ctx, replyToken, msgTokenNotFound)
 	case errors.Is(err, ErrTokenExpired):
 		return uc.line.Reply(ctx, replyToken, msgTokenExpired)
+	case errors.Is(err, ErrPlanMaxLineUsersReached):
+		return uc.line.Reply(ctx, replyToken, msgPlanCapacityFull)
 	case errors.Is(err, ErrLineUserExists):
 		// 安全網（FindActive で先に弾いてるので通常起きない）
 		return uc.line.Reply(ctx, replyToken, msgRespondingPlaceholder)
@@ -270,6 +295,16 @@ func (uc *RespondToIncomingMessage) tryRegister(
 		_ = uc.line.Reply(ctx, replyToken, msgInternalError)
 		return err
 	}
+}
+
+// quotaExceededMessage はプランの制限値を含めた拒否メッセージを生成する。
+//
+// 例: "（無料プランは 1 時間 5 回 / 1 日 30 回までです）"
+func quotaExceededMessage(plan domain.Plan) string {
+	return fmt.Sprintf(
+		"たくさん使ってくれてありがとうございます。少し時間をおいてから、またお話しましょう。\n（%sプランは 1 時間 %d 回 / 1 日 %d 回までです）",
+		plan.DisplayName, plan.HourlyLimit, plan.DailyLimit,
+	)
 }
 
 // isSixDigits は 6 桁の半角数字かを判定する。

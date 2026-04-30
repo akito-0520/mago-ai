@@ -50,6 +50,9 @@ type AdminLinkTokenRepository interface {
 type LineUserRepository interface {
 	FindActiveByLineUserID(ctx context.Context, lineUserID string) (*domain.LineUser, error)
 	ExistsRevokedByLineUserID(ctx context.Context, lineUserID string) (bool, error)
+	// CountActiveByAdminID は admin に紐付く現役（取り消されていない）ユーザー数を返す。
+	// プラン上限チェック用。
+	CountActiveByAdminID(ctx context.Context, adminID string) (int, error)
 	Upsert(ctx context.Context, user domain.LineUser) error
 	UpdateSessionResetAt(ctx context.Context, lineUserID string) error
 }
@@ -58,6 +61,33 @@ type LineUserRepository interface {
 type RegisterTokenRepository interface {
 	FindUnusedByToken(ctx context.Context, token string) (*domain.RegisterToken, error)
 	MarkUsed(ctx context.Context, token string, lineUserID string) error
+}
+
+// PlanRepository はプラン情報を取得する Repository。
+//
+// 内部実装はキャッシュを持つ前提（プラン情報は滅多に変わらない）。
+// FindByAdminID は admin_plans.plan_code → plans を辿って Plan を解決する。
+// admin_plans に行が無い場合は domain.DefaultPlanCode を使う。
+type PlanRepository interface {
+	// FindByAdminID は admin_id に紐付くプランを返す。
+	// 行が無ければ DefaultPlanCode (free) のプランを返す（エラーにはしない）。
+	FindByAdminID(ctx context.Context, adminID string) (*domain.Plan, error)
+}
+
+// QuotaResult は QuotaService.Allow の戻り値。
+type QuotaResult struct {
+	Allowed bool        // 許可されたか
+	Plan    domain.Plan // 判定に使ったプラン（拒否時のメッセージ生成等に使う）
+}
+
+// QuotaService はプランに基づいたレート制限の判定サービス。
+//
+// 内部実装は PlanRepository + RateLimiter のコンポジション。
+// usecase 層からはこの interface 越しに「叩いていいか」だけ問い合わせる。
+type QuotaService interface {
+	// Allow は admin の現在の使用状況とプランから、新たな Claude 呼び出しを許可するか判定する。
+	// 許可なら内部のカウンタに now を記録する。
+	Allow(ctx context.Context, adminID string, now time.Time) (*QuotaResult, error)
 }
 
 // ConversationRepository は conversations テーブルの操作を抽象化する。
