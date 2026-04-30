@@ -41,6 +41,72 @@ func (f *fakeLineGateway) GetProfile(_ context.Context, lineUserID string) (*use
 	return f.profileResult, nil
 }
 
+// --- fakeAdminLineLinkRepository ---
+
+type fakeAdminLineLinkRepository struct {
+	findByLineResult  *domain.AdminLineLink
+	findByLineErr     error
+	findByAdminCalls  []string
+	findByAdminResult []domain.AdminLineLink
+	findByAdminErr    error
+	createCalls       []domain.AdminLineLink
+	createErr         error
+	createID          string
+}
+
+func (f *fakeAdminLineLinkRepository) FindByLineUserID(_ context.Context, _ string) (*domain.AdminLineLink, error) {
+	return f.findByLineResult, f.findByLineErr
+}
+
+func (f *fakeAdminLineLinkRepository) FindByAdminID(_ context.Context, adminID string) ([]domain.AdminLineLink, error) {
+	f.findByAdminCalls = append(f.findByAdminCalls, adminID)
+	return f.findByAdminResult, f.findByAdminErr
+}
+
+func (f *fakeAdminLineLinkRepository) Create(_ context.Context, link domain.AdminLineLink) (string, error) {
+	if f.createErr != nil {
+		return "", f.createErr
+	}
+	f.createCalls = append(f.createCalls, link)
+	id := f.createID
+	if id == "" {
+		id = "fake-link-id"
+	}
+	return id, nil
+}
+
+// --- fakeAdminNotifier ---
+
+type fakeAdminNotifier struct {
+	pushCalls     []notifyCall
+	pushErr       error
+	profileResult *usecase.LineProfile
+	profileErr    error
+}
+
+type notifyCall struct {
+	lineUserID string
+	text       string
+}
+
+func (f *fakeAdminNotifier) Push(_ context.Context, lineUserID, text string) error {
+	if f.pushErr != nil {
+		return f.pushErr
+	}
+	f.pushCalls = append(f.pushCalls, notifyCall{lineUserID, text})
+	return nil
+}
+
+func (f *fakeAdminNotifier) GetProfile(_ context.Context, lineUserID string) (*usecase.LineProfile, error) {
+	if f.profileErr != nil {
+		return nil, f.profileErr
+	}
+	if f.profileResult == nil {
+		return &usecase.LineProfile{UserID: lineUserID, DisplayName: ""}, nil
+	}
+	return f.profileResult, nil
+}
+
 // --- fakeConversationRepository ---
 
 type fakeConversationRepository struct {
@@ -165,6 +231,14 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 			wantReplyText: "新しい質問をどうぞ。前のお話はいったんおしまいにしますね。",
 		},
 		{
+			name:          "現役ユーザー + #解決しなかった → フィードバック保存",
+			activeUser:    activeUser,
+			text:          "#解決しなかった",
+			wantReplyText: "ごめんなさい、お役に立てませんでした。お孫さんに「mago.ai でうまく解決しなかった」とお伝えください。直接お電話などでサポートしてもらえると思います。",
+			wantUserSave:  1,
+			wantAsstSave:  1,
+		},
+		{
 			name:           "Claude 失敗 → エラーメッセージ + assistant 行は保存しない",
 			activeUser:     activeUser,
 			text:           "助けて",
@@ -239,18 +313,22 @@ func TestRespondToIncomingMessage_Execute(t *testing.T) {
 				findResult: tt.findToken,
 			}
 			conversations := &fakeConversationRepository{}
+			adminLinks := &fakeAdminLineLinkRepository{}
 			line := &fakeLineGateway{}
 			claudeGateway := &fakeClaudeGateway{
 				completeResult: tt.claudeResp,
 				completeErr:    tt.claudeErr,
 			}
+			notifier := &fakeAdminNotifier{}
 
 			registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, line)
 			uc := usecase.NewRespondToIncomingMessage(
 				lineUsers,
 				conversations,
+				adminLinks,
 				line,
 				claudeGateway,
+				notifier,
 				registerUC,
 				24*time.Hour,
 			)

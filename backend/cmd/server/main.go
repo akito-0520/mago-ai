@@ -65,10 +65,17 @@ func main() {
 		}
 	}()
 
-	// LINE クライアント
+	// LINE クライアント（おばあちゃん用）
 	lineClient, err := linebot.New(cfg.LineChannelAccessToken)
 	if err != nil {
 		slog.Error("linebot setup failed", "err", err)
+		os.Exit(1)
+	}
+
+	// LINE 通知クライアント（孫用、別チャネル）
+	notifierClient, err := linebot.NewNotifier(cfg.LineNotifyChannelAccessToken)
+	if err != nil {
+		slog.Error("line notifier setup failed", "err", err)
 		os.Exit(1)
 	}
 
@@ -79,24 +86,32 @@ func main() {
 	lineUsers := postgres.NewLineUserRepository(db)
 	registerTokens := postgres.NewRegisterTokenRepository(db)
 	conversations := postgres.NewConversationRepository(db)
+	adminLinks := postgres.NewAdminLineLinkRepository(db)
+	adminLinkTokens := postgres.NewAdminLinkTokenRepository(db)
 
 	// Usecase
 	registerUC := usecase.NewRegisterLineUserByToken(lineUsers, registerTokens, lineClient)
 	respondUC := usecase.NewRespondToIncomingMessage(
 		lineUsers,
 		conversations,
+		adminLinks,
 		lineClient,
 		claudeClient,
+		notifierClient,
 		registerUC,
 		cfg.ConversationWindow,
 	)
+	linkAdminUC := usecase.NewLinkAdminLineByToken(adminLinks, adminLinkTokens, notifierClient)
+	respondAdminUC := usecase.NewRespondToAdminLineMessage(notifierClient, linkAdminUC)
 
 	// Handler
 	webhookHandler := handler.Webhook(cfg.LineChannelSecret, respondUC)
+	adminWebhookHandler := handler.AdminWebhook(cfg.LineNotifyChannelSecret, respondAdminUC)
 
 	// ルートの登録
 	e.GET("/healthz", handler.Health)
 	e.POST("/webhook", webhookHandler)
+	e.POST("/webhook/admin", adminWebhookHandler)
 
 	// サーバー起動
 	go func() {

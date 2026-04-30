@@ -19,6 +19,33 @@ type LineGateway interface {
 	GetProfile(ctx context.Context, lineUserID string) (*LineProfile, error)
 }
 
+// AdminNotifier は管理者（孫）への LINE Push 通知を抽象化する。
+// 通知用 LINE 公式アカウント経由で Push API を呼び出す。
+type AdminNotifier interface {
+	// Push は指定の LINE User ID に通知メッセージを送る（Reply ではなく Push）。
+	Push(ctx context.Context, lineUserID string, text string) error
+	// GetProfile は通知用チャネル経由で LINE プロフィールを取得する。
+	GetProfile(ctx context.Context, lineUserID string) (*LineProfile, error)
+}
+
+// AdminLineLinkRepository は admin_line_links テーブルの操作を抽象化する。
+type AdminLineLinkRepository interface {
+	// FindByLineUserID は通知 Bot 友だちの孫を探す。見つからなければ (nil, nil)。
+	FindByLineUserID(ctx context.Context, lineUserID string) (*domain.AdminLineLink, error)
+	// FindByAdminID は admin に紐付いた連携を全て返す（複数 LINE 端末対応）。
+	FindByAdminID(ctx context.Context, adminID string) ([]domain.AdminLineLink, error)
+	// Create は新規連携を INSERT する。
+	Create(ctx context.Context, link domain.AdminLineLink) (string, error)
+}
+
+// AdminLinkTokenRepository は admin_link_tokens テーブルの操作を抽象化する。
+type AdminLinkTokenRepository interface {
+	// FindUnusedByToken は未使用のトークンを返す。見つからなければ (nil, nil)。
+	FindUnusedByToken(ctx context.Context, token string) (*domain.AdminLinkToken, error)
+	// MarkUsed は token を使用済みにマークする（used_at = now(), used_by = linkID）。
+	MarkUsed(ctx context.Context, token string, linkID string) error
+}
+
 // LineUserRepository は line_users テーブルの操作を抽象化する。
 type LineUserRepository interface {
 	FindActiveByLineUserID(ctx context.Context, lineUserID string) (*domain.LineUser, error)

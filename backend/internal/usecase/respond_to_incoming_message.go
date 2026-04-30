@@ -19,11 +19,16 @@ const (
 	msgInternalError         = "ごめんなさい、ちょっと調子が悪いみたいです。少し待ってからもう一度送ってください。"
 	msgClaudeError           = "うまくお答えできませんでした。少し時間を置いてからもう一度送ってみてください。"
 	msgSessionReset          = "新しい質問をどうぞ。前のお話はいったんおしまいにしますね。"
+	msgUnresolved            = "ごめんなさい、お役に立てませんでした。お孫さんに「mago.ai でうまく解決しなかった」とお伝えください。直接お電話などでサポートしてもらえると思います。"
 	msgRespondingPlaceholder = "メッセージありがとうございます。お返事の機能はまだ準備中です。"
 )
 
 // SessionResetCommand は会話履歴リセット用の特殊コマンド（Rich Menu から送信される）。
 const SessionResetCommand = "#新しい質問"
+
+// UnresolvedCommand は「解決しなかった」フィードバック用の特殊コマンド（Rich Menu から送信される）。
+// 会話履歴に残り、管理画面で孫が確認できる。
+const UnresolvedCommand = "#解決しなかった"
 
 // 会話履歴の取得上限（直近 N ターン）
 const conversationHistoryLimit = 20
@@ -38,8 +43,10 @@ const conversationHistoryLimit = 20
 type RespondToIncomingMessage struct {
 	lineUsers          LineUserRepository
 	conversations      ConversationRepository
+	adminLinks         AdminLineLinkRepository
 	line               LineGateway
 	claude             ClaudeGateway
+	notifier           AdminNotifier
 	register           *RegisterLineUserByToken
 	conversationWindow time.Duration
 }
@@ -48,16 +55,20 @@ type RespondToIncomingMessage struct {
 func NewRespondToIncomingMessage(
 	lineUsers LineUserRepository,
 	conversations ConversationRepository,
+	adminLinks AdminLineLinkRepository,
 	line LineGateway,
 	claude ClaudeGateway,
+	notifier AdminNotifier,
 	register *RegisterLineUserByToken,
 	conversationWindow time.Duration,
 ) *RespondToIncomingMessage {
 	return &RespondToIncomingMessage{
 		lineUsers:          lineUsers,
 		conversations:      conversations,
+		adminLinks:         adminLinks,
 		line:               line,
 		claude:             claude,
+		notifier:           notifier,
 		register:           register,
 		conversationWindow: conversationWindow,
 	}
@@ -97,7 +108,7 @@ func (uc *RespondToIncomingMessage) Execute(
 	return uc.line.Reply(ctx, replyToken, msgRegistrationRequired)
 }
 
-// respondToActive は現役ユーザーに対する応答（session reset または Claude 応答）。
+// respondToActive は現役ユーザーに対する応答（特殊コマンドまたは Claude 応答）。
 func (uc *RespondToIncomingMessage) respondToActive(
 	ctx context.Context,
 	user *domain.LineUser,
@@ -112,8 +123,70 @@ func (uc *RespondToIncomingMessage) respondToActive(
 		return uc.line.Reply(ctx, replyToken, msgSessionReset)
 	}
 
+	// #解決しなかった → フィードバックとして会話履歴に残し、案内を返す
+	if text == UnresolvedCommand {
+		return uc.handleUnresolved(ctx, user, replyToken, text)
+	}
+
 	// Claude 応答
 	return uc.respondWithClaude(ctx, user, replyToken, text)
+}
+
+// handleUnresolved は「解決しなかった」フィードバックを記録し、案内を返す。
+// 会話履歴に user / assistant 双方の行を残し、紐付けされた孫の LINE に通知を送る。
+func (uc *RespondToIncomingMessage) handleUnresolved(
+	ctx context.Context,
+	user *domain.LineUser,
+	replyToken, text string,
+) error {
+	// user 行として保存（孫が会話ログで確認できるように）
+	if err := uc.conversations.CreateUser(ctx, user.ID, text); err != nil {
+		slog.Error("save unresolved user message failed", "err", err)
+		// 保存失敗してもユーザーには返信を返す
+	}
+
+	// assistant 行として案内を保存（メタ情報なし）
+	if err := uc.conversations.CreateAssistant(ctx, user.ID, msgUnresolved, domain.AssistantMeta{}); err != nil {
+		slog.Error("save unresolved assistant message failed", "err", err)
+	}
+
+	// 孫の LINE に通知（ベストエフォート、失敗してもおばあちゃんには返信する）
+	uc.notifyAdminUnresolved(ctx, user)
+
+	return uc.line.Reply(ctx, replyToken, msgUnresolved)
+}
+
+// notifyAdminUnresolved は admin に紐付いた全 LINE 連携先に通知を送る。
+// エラーはログするだけ。おばあちゃん側の応答はブロックしない。
+func (uc *RespondToIncomingMessage) notifyAdminUnresolved(
+	ctx context.Context,
+	user *domain.LineUser,
+) {
+	links, err := uc.adminLinks.FindByAdminID(ctx, user.AdminID)
+	if err != nil {
+		slog.Error("find admin links failed", "err", err)
+		return
+	}
+	if len(links) == 0 {
+		return // 連携なし
+	}
+
+	name := "おばあちゃん"
+	if user.DisplayName != nil && *user.DisplayName != "" {
+		name = *user.DisplayName
+	}
+
+	msg := name + "さんが「うまく解決しなかった」と回答しました。\n管理画面の会話ログで詳細をご確認ください。"
+
+	for _, link := range links {
+		if err := uc.notifier.Push(ctx, link.LineUserID, msg); err != nil {
+			slog.Error("notify admin failed",
+				"err", err,
+				"linkID", link.ID,
+				"adminID", link.AdminID,
+			)
+		}
+	}
 }
 
 // respondWithClaude は会話履歴を組み立てて Claude に問い合わせ、結果を返信＆保存する。
