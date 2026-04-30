@@ -32,7 +32,7 @@ create policy plans_select_all on public.plans for select using (true);
 
 -- 初期データ（無料プランのみ。basic/premium は将来の migration で追加予定）
 insert into public.plans (code, display_name, max_line_users, hourly_limit, daily_limit) values
-  ('free', '無料', 1, 5, 30);
+  ('free', '無料', 1, 10, 60);
 
 
 -- -----------------------------------------------------------------------------
