@@ -1,22 +1,48 @@
 package postgres
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
-
-	_ "github.com/jackc/pgx/v5/stdlib" // pgx ドライバ登録
 )
 
 // New は DSN から *sqlx.DB を生成する。
-// 接続プール設定と snake_case ↔ CamelCase の変換を組み込む。
+// 接続プール設定、snake_case ↔ CamelCase の変換、
+// および pgbouncer (Supabase pooler) 互換のための simple protocol モードを設定する。
 func New(dsn string) (*sqlx.DB, error) {
-	// 接続オブジェクトの作成（プールマネージャー）
-	db, err := sqlx.Connect("pgx", dsn)
+	// pgx config をパース。Exec モード（prepared statement キャッシュなし）を有効にする。
+	//
+	// 理由：Supabase の Transaction pooler (port 6543) は pgbouncer ベースで、
+	// 接続が複数クライアント間で使い回される。pgx のデフォルト (CacheStatement) は
+	// prepared statement を named キャッシュするため、別クライアントが同名の statement を
+	// 作ると衝突する（SQLSTATE 42P05）。
+	//
+	// QueryExecModeExec は extended protocol を維持しつつ、毎クエリ anonymous prepared
+	// statement を使うため、pgbouncer と衝突せず、型変換・バイナリ転送など pgx の
+	// 利点も保てる。simple protocol よりわずかに速い。
+	pgxConfig, err := pgx.ParseConfig(dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("postgres parse config: %w", err)
 	}
+	pgxConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+
+	// pgx config から *sql.DB を生成し、sqlx でラップする
+	sqlDB := stdlib.OpenDB(*pgxConfig)
+
+	// 疎通確認
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sqlDB.PingContext(ctx); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("postgres ping: %w", err)
+	}
+
+	db := sqlx.NewDb(sqlDB, "pgx")
 
 	// コネクションプール設定
 	db.SetMaxOpenConns(20)                 // 最大同時接続数
